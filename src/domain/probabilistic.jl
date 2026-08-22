@@ -187,7 +187,9 @@ struct LabelledCategorical{L}
         total = sum(probabilities)
         isapprox(total, 1; atol = 1.0e-6) ||
             throw(ArgumentError("probabilities must sum to 1, got $total"))
-        return new{L}(labels, Float64.(probabilities))
+        # `convert` rather than a broadcast: broadcasting a type over an abstractly
+        # typed vector does not infer, and a constructor on the hot path should.
+        return new{L}(labels, convert(Vector{Float64}, probabilities))
     end
 end
 
@@ -197,7 +199,7 @@ end
 Build from `label => probability` pairs.
 """
 LabelledCategorical(pairs::Pair...) =
-    LabelledCategorical(collect(first.(pairs)), collect(Float64.(last.(pairs))))
+    LabelledCategorical([first(pair) for pair in pairs], Float64[last(pair) for pair in pairs])
 
 """
     probability_of(categorical, label)
@@ -257,7 +259,7 @@ Scale non-negative weights to sum to one.
 function normalise(weights::AbstractVector{<:Real})
     total = sum(weights)
     total > 0 || throw(ArgumentError("weights must sum to a positive value, got $total"))
-    return collect(Float64.(weights ./ total))
+    return convert(Vector{Float64}, weights ./ total)
 end
 
 """

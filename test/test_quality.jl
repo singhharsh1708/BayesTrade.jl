@@ -12,6 +12,9 @@ using JET
     end
 
     @testset "JET" begin
-        JET.test_package(BayesTrade; target_defined_modules = true)
+        # No configuration passed: JET's options have moved between the versions that
+        # support Julia 1.10 and those that support current stable, and the defaults of
+        # `test_package` already scope the analysis to this package.
+        JET.test_package(BayesTrade)
     end
 end
