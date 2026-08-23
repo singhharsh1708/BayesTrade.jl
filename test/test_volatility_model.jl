@@ -92,6 +92,72 @@ vm_predict(model, example) = predict(
             @test_throws ArgumentError fit!(vm_model(), reverse(examples))
         end
 
+        @testset "a refused refit leaves the model exactly as it was" begin
+            # The dangerous shape: reset the posterior, then throw, and leave FitState
+            # describing a fit that no longer exists. require_fitted would pass, predict
+            # would answer from the prior, and the answer would be stamped with the old
+            # window's row count. It also errs narrow, which is the direction that matters.
+            examples = vm_examples()
+            model = vm_fitted(; examples = examples[1:500])
+            before_hash = params_hash(model)
+            before_volatility = expected_volatility(model.filter)
+            before_end = fit_state(model).train_end
+
+            @test_throws ArgumentError fit!(model, reverse(examples[501:800]))
+            @test params_hash(model) == before_hash
+            @test expected_volatility(model.filter) == before_volatility
+            @test n_absorbed(model.filter) == 500
+            @test n_observations(model) == 500
+            @test fit_state(model).train_end == before_end
+
+            @test_throws HorizonMismatchError fit!(model, vm_examples(; horizon = 5)[1:200])
+            @test params_hash(model) == before_hash
+            @test n_absorbed(model.filter) == 500
+
+            @test_throws ArgumentError fit!(model, examples[1:10])
+            @test params_hash(model) == before_hash
+        end
+
+        @testset "a window it cannot read at all is not a fit" begin
+            # The posterior would be the prior exactly, and stamping that with two hundred
+            # observations would put a belief in the record the model never formed.
+            blanked = TrainingExample[
+                TrainingExample(
+                        FeatureVector(
+                            symbol = example.features.symbol, as_of = example.features.as_of,
+                        ),
+                        example.label,
+                    ) for example in vm_examples()[1:200]
+            ]
+            model = vm_model()
+            @test_throws ArgumentError fit!(model, blanked)
+            @test !is_fitted(model)
+        end
+
+        @testset "it absorbs the feature, never the label" begin
+            # What makes update! honest in a live loop: the quantity it learns from is one
+            # the market has already printed, not one that needs the next h bars to exist.
+            examples = vm_examples()[1:300]
+            relabelled = TrainingExample[
+                TrainingExample(
+                        example.features,
+                        Label(
+                            symbol = example.label.symbol,
+                            as_of = example.label.as_of,
+                            realised_at = example.label.realised_at,
+                            horizon_bars = example.label.horizon_bars,
+                            forward_log_return = 0.5,
+                            max_adverse_excursion = -0.5,
+                            max_favourable_excursion = 0.5,
+                        ),
+                    ) for example in examples
+            ]
+            plain = vm_fitted(; examples = examples)
+            altered = vm_fitted(; examples = relabelled)
+            @test params_hash(altered) == params_hash(plain)
+            @test altered.filter.squares == plain.filter.squares
+        end
+
         @testset "the diagnostics are a fixed set" begin
             # Pinned so the dictionary cannot silently gain or lose a key between versions,
             # which anything reading a stored prediction would have no way to notice.
@@ -254,6 +320,42 @@ vm_predict(model, example) = predict(
                 @test probability_positive(record.predictive) ≈ 0.5 atol = 1.0e-9
             end
             @test report.brier_score ≈ 0.25 atol = 1.0e-9
+        end
+    end
+
+    @testset "a longer horizon is a wider predictive, not a different model" begin
+        # Every other test here fits one-bar labels, so the horizon path was never
+        # exercised at all: predict could have ignored model.horizon_bars entirely and
+        # nothing would have noticed.
+        examples = vm_examples(; horizon = 5)
+        model = vm_fitted(; examples = examples, horizon_bars = 5)
+        result = vm_predict(model, last(examples))
+        @test result.horizon_bars == 5
+
+        # The same posterior read at two horizons. A model that ignored its own horizon
+        # would emit the one-bar predictive here and this ratio would be one.
+        near = return_predictive(model.filter; horizon_bars = 1)
+        @test std(result.distribution) / std(near) ≈ sqrt(5) rtol = 1.0e-9
+        @test result.epistemic_variance ≈
+            5 * variance_inflation(model.filter; horizon_bars = 1) rtol = 1.0e-12
+        @test result.diagnostics[:predictive_df] ≈ predictive_df(model.filter)
+
+        @testset "and it is scored at that horizon" begin
+            far = walk_forward(
+                () -> vm_model(horizon_bars = 5), examples,
+                WalkForwardConfig(initial_train = 500, refit_every = 1),
+            )
+            close = walk_forward(
+                () -> vm_model(), vm_examples(; horizon = 1),
+                WalkForwardConfig(initial_train = 500, refit_every = 1),
+            )
+            @test all(record -> record.model.name === VOLATILITY, far)
+            @test all(record -> record.realised_at > record.as_of, far)
+
+            far_report = assess(predictives(far), outcomes(far))
+            close_report = assess(predictives(close), outcomes(close))
+            @test interval_calibration_error(far_report) < 0.1
+            @test far_report.sharpness > 1.8 * close_report.sharpness
         end
     end
 

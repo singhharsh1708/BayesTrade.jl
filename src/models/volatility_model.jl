@@ -154,16 +154,40 @@ function fit!(
         ),
     )
     check_horizons(model, observations)
-    reset!(model.filter)
 
     stamps = DateTime[example.features.as_of for example in observations]
     issorted(stamps) ||
         throw(ArgumentError("training rows must be in chronological order"))
 
+    # Absorbed into a fresh filter and swapped in only once the whole window is through.
+    # Resetting first and rebuilding in place would leave a refit that throws part way
+    # holding neither the old posterior nor a new one, while `FitState` still described the
+    # fit that no longer exists: `predict` would go on answering, stamped with the previous
+    # window's identity and the previous window's row count. That is exactly the
+    # prior-only guess `NotFittedError` exists to prevent, and it errs narrow.
+    replacement = DiscountedVarianceFilter(
+        model.filter.prior;
+        discounts = model.filter.discounts,
+        weight_forgetting = model.filter.weight_forgetting,
+        centre = model.filter.centre,
+    )
     for example in observations
-        absorb!(model, example.features)
+        absorb!(replacement, model.source, example.features)
     end
 
+    # A window it could not read a single bar of is not a fit. The posterior would be the
+    # prior exactly, and stamping that with the window's row count would put a belief in
+    # the record that the model never formed.
+    n_absorbed(replacement) > 0 || throw(
+        ArgumentError(
+            string(
+                "none of the ", length(observations), " training rows carried a readable ",
+                join(string.(feature_names(model)), ", "),
+            ),
+        ),
+    )
+
+    model.filter = replacement
     return mark_fitted!(
         model;
         n_observations = length(observations),
@@ -181,29 +205,32 @@ Absorb one bar. Closed form, no refit.
 function update!(model::BayesianVolatilityModel, observation::TrainingExample)
     require_fitted(model)
     check_horizons(model, [observation])
-    absorb!(model, observation.features)
+    absorb!(model.filter, model.source, observation.features)
     model.state.n_observations += 1
     model.state.train_end = observation.features.as_of
     return model
 end
 
 """
-    absorb!(model, features)
+    absorb!(filter, source, features)
 
 Read one bar through the source and give it to the filter, or age the filter past it.
 
-The single place a bar reaches the posterior, so the missing-bar policy cannot differ between
-the batch path and the live one.
+The single place a bar reaches a posterior, so the missing-bar policy cannot differ between
+the batch path and the live one. It takes the filter rather than the model because the batch
+path absorbs into a replacement filter that is not the model's yet.
 """
-function absorb!(model::BayesianVolatilityModel, features::FeatureVector)
-    reading = observe(model.source, features, model.filter.centre)
+function absorb!(
+        filter::DiscountedVarianceFilter, source::VarianceSource, features::FeatureVector,
+    )
+    reading = observe(source, features, filter.centre)
     if reading === nothing
-        skip_observation!(model.filter)
+        skip_observation!(filter)
     else
         estimate, weight = reading
-        observe_variance!(model.filter, estimate; weight = weight)
+        observe_variance!(filter, estimate; weight = weight)
     end
-    return model
+    return filter
 end
 
 """
