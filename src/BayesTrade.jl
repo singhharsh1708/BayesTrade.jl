@@ -47,6 +47,8 @@ include("features/presets.jl")
 include("inference/online/linear.jl")
 include("models/scaling.jl")
 include("models/return_model.jl")
+include("inference/posterior/calibration.jl")
+include("inference/offline/walk_forward.jl")
 
 export TradingMode, BACKTEST, PAPER, LIVE, is_simulated
 export Action, BUY, SELL, HOLD, NO_TRADE, is_actionable
@@ -138,5 +140,13 @@ export predict_mean, state, load_state!, solve_precision
 export FeatureScaler, fit_scaler, transform, transform_row, unscale_coefficients
 export BayesianReturnModel, HorizonMismatchError, design_columns, response_scale
 export can_predict, coefficient_report, restore!
+
+export CoveragePoint, ReliabilityBin, CalibrationReport, coverage_error, reliability_gap
+export interval_calibration_error, is_overconfident, assess
+export probability_integral_transform, kolmogorov_smirnov_uniform
+export coverage_curve, reliability_curve, expected_calibration_error, brier_score
+
+export WalkForwardConfig, PredictionRecord, walk_forward, outcomes, predictives
+export went_up, prediction_error
 
 end # module
