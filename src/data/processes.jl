@@ -219,18 +219,17 @@ function stationary_distribution(process::RegimeSwitchingReturns)
     system[n, :] .= 1.0
     target = zeros(Float64, n)
     target[n] = 1.0
-    # LAPACK reports a rank-deficient system as a LAPACKException rather than the
-    # SingularException the generic path uses, so both are caught.
-    try
-        return system \ target
-    catch error
-        (error isa SingularException || error isa LAPACKException) || rethrow()
-        throw(
-            ArgumentError(
-                "the transition matrix is reducible, so it has no unique stationary distribution",
-            ),
-        )
-    end
+    # An explicit LU rather than a bare backslash. Backslash on a plain matrix goes through
+    # a pivoted-QR least-squares path built for possibly rank-deficient systems, which is
+    # neither what this is nor what it should silently fall back to: a square chain either
+    # has a unique stationary distribution or it does not.
+    factorisation = lu(system; check = false)
+    issuccess(factorisation) || throw(
+        ArgumentError(
+            "the transition matrix is reducible, so it has no unique stationary distribution",
+        ),
+    )
+    return factorisation \ target
 end
 
 function simulate(process::RegimeSwitchingReturns, n_bars::Integer, rng::AbstractRNG)
@@ -254,8 +253,9 @@ end
 
 Draw an index with probability proportional to `weights`.
 
-Written out rather than reached for from StatsBase so the arithmetic is visible: this is
-the one place the latent state path is decided, and the tests grade models against it.
+Written out rather than reached for from a sampling package so the arithmetic is visible:
+this is the one place the latent state path is decided, and the tests grade models against
+it.
 """
 function sample_index(rng::AbstractRNG, weights)
     threshold = rand(rng) * sum(weights)
