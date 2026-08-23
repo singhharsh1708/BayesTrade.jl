@@ -29,5 +29,7 @@ using Test
     include("test_labels.jl")
     include("test_linear.jl")
     include("test_return_model.jl")
+    include("test_calibration.jl")
+    include("test_walk_forward.jl")
     include("test_leakage.jl")
 end
