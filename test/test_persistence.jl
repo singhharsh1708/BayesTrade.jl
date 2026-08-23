@@ -126,6 +126,13 @@ end
             write(joinpath(dir, "bad.json"), "{not json")
             @test_throws ModelFileError load_model(joinpath(dir, "bad.json"))
 
+            # Valid JSON, but not a bundle. Every one of these is a document a parser
+            # accepts and a loader must not.
+            for text in ("5", "\"a model\"", "[1, 2]", "null")
+                write(joinpath(dir, "bad.json"), text)
+                @test_throws ModelFileError load_model(joinpath(dir, "bad.json"))
+            end
+
             bundle = JSON3.read(original, Dict{String, Any})
             bundle["schema"] = 99
             write(path, JSON3.write(bundle))
@@ -133,6 +140,16 @@ end
 
             bundle = JSON3.read(original, Dict{String, Any})
             delete!(bundle, "scaler")
+            write(path, JSON3.write(bundle))
+            @test_throws ModelFileError load_model(path)
+
+            bundle = JSON3.read(original, Dict{String, Any})
+            bundle["config"]["horizon_bars"] = "five"
+            write(path, JSON3.write(bundle))
+            @test_throws ModelFileError load_model(path)
+
+            bundle = JSON3.read(original, Dict{String, Any})
+            bundle["state"]["xy"] = "not a vector"
             write(path, JSON3.write(bundle))
             @test_throws ModelFileError load_model(path)
         end

@@ -85,17 +85,24 @@ Read a model written by [`save_model`](@ref), verifying it round-tripped.
 """
 function load_model(path::AbstractString)
     isfile(path) || throw(ModelFileError(string("no such model file: ", path)))
-    # Read lazily rather than into a typed dictionary. The typed read builds the container
+    # Read lazily rather than into a typed dictionary. The typed read builds its container
     # through a generic path that does not infer, and the lazy object supports the string
-    # indexing and `get` this loader uses without materialising anything it will not touch.
-    bundle = try
+    # indexing this loader uses without materialising anything it will not touch.
+    parsed = try
         JSON3.read(read(path, String))
     catch error
         error isa InterruptException && rethrow()
         throw(ModelFileError(string(path, ": ", sprint(showerror, error))))
     end
 
-    schema = get(bundle, "schema", nothing)
+    # A bare number, string or list is valid JSON, so the top level is narrowed here rather
+    # than left to fail somewhere below with a method error naming JSON3 internals instead
+    # of the file that was actually wrong.
+    parsed isa AbstractDict ||
+        throw(ModelFileError(string(path, ": holds a ", typeof(parsed), ", not a bundle")))
+    bundle = parsed
+
+    schema = haskey(bundle, "schema") ? bundle["schema"] : nothing
     schema == MODEL_SCHEMA_VERSION || throw(
         ModelFileError(
             string(
@@ -108,11 +115,15 @@ function load_model(path::AbstractString)
     model = try
         build_from_bundle(bundle)
     catch error
-        (error isa KeyError || error isa ArgumentError || error isa MethodError) || rethrow()
+        (
+            error isa KeyError || error isa ArgumentError || error isa MethodError ||
+                error isa InexactError || error isa TypeError
+        ) || rethrow()
         throw(ModelFileError(string(path, ": ", sprint(showerror, error))))
     end
 
-    expected = get(bundle["model"], "params_hash", nothing)
+    stored = bundle_object(bundle, "model")
+    expected = haskey(stored, "params_hash") ? bundle_text(stored, "params_hash") : nothing
     if expected !== nothing && params_hash(model) != expected
         throw(
             ModelFileError(
@@ -127,48 +138,168 @@ function load_model(path::AbstractString)
     return model
 end
 
-function build_from_bundle(bundle::AbstractDict)
-    config = bundle["config"]
-    prior_bundle = config["prior"]
-    scaler_bundle = bundle["scaler"]
-    stored = bundle["model"]
+"""
+Field readers for a parsed bundle.
 
-    precision_rows = prior_bundle["precision"]
-    width = length(precision_rows)
-    precision = Matrix{Float64}(undef, width, width)
-    for (index, row) in enumerate(precision_rows)
-        precision[index, :] = convert(Vector{Float64}, row)
+Below the top level a model file holds whatever a person or another program put there, so
+every field is narrowed on the way out. A file carrying a string where a number belongs then
+fails naming the field that was wrong, and the constructors below are only ever handed the
+types they are declared to take.
+"""
+function bundle_field(bundle::AbstractDict, name::String)
+    haskey(bundle, name) || throw(ModelFileError(string("missing \"", name, "\"")))
+    return bundle[name]
+end
+
+function bundle_object(bundle::AbstractDict, name::String)
+    value = bundle_field(bundle, name)
+    value isa AbstractDict || throw(ModelFileError(string("\"", name, "\" is not an object")))
+    return value
+end
+
+function bundle_number(bundle::AbstractDict, name::String)
+    value = bundle_field(bundle, name)
+    value isa Real || throw(
+        ModelFileError(string("\"", name, "\" holds ", typeof(value), ", expected a number")),
+    )
+    return Float64(value)
+end
+
+function bundle_whole(bundle::AbstractDict, name::String)
+    value = bundle_number(bundle, name)
+    isinteger(value) ||
+        throw(ModelFileError(string("\"", name, "\" is ", value, ", expected a whole number")))
+    return Int(value)
+end
+
+function bundle_text(bundle::AbstractDict, name::String)
+    value = bundle_field(bundle, name)
+    value isa AbstractString || throw(
+        ModelFileError(string("\"", name, "\" holds ", typeof(value), ", expected a string")),
+    )
+    return String(value)
+end
+
+function bundle_numbers(bundle::AbstractDict, name::String)
+    value = bundle_field(bundle, name)
+    value isa AbstractVector || throw(ModelFileError(string("\"", name, "\" is not a list")))
+    entries = Float64[]
+    for entry in value
+        entry isa Real || throw(
+            ModelFileError(
+                string("\"", name, "\" holds ", typeof(entry), ", expected numbers"),
+            ),
+        )
+        push!(entries, entry)
     end
+    return entries
+end
 
-    feature_names = Symbol[Symbol(name) for name in config["feature_names"]]
+function bundle_names(bundle::AbstractDict, name::String)
+    value = bundle_field(bundle, name)
+    value isa AbstractVector || throw(ModelFileError(string("\"", name, "\" is not a list")))
+    entries = Symbol[]
+    for entry in value
+        entry isa AbstractString || throw(
+            ModelFileError(
+                string("\"", name, "\" holds ", typeof(entry), ", expected names"),
+            ),
+        )
+        push!(entries, Symbol(entry))
+    end
+    return entries
+end
+
+function bundle_rows(bundle::AbstractDict, name::String)
+    value = bundle_field(bundle, name)
+    value isa AbstractVector ||
+        throw(ModelFileError(string("\"", name, "\" is not a list of rows")))
+    rows = Vector{Float64}[]
+    for (index, row) in enumerate(value)
+        row isa AbstractVector ||
+            throw(ModelFileError(string("\"", name, "\" row ", index, " is not a list")))
+        entries = Float64[]
+        for entry in row
+            entry isa Real || throw(
+                ModelFileError(
+                    string("\"", name, "\" holds ", typeof(entry), ", expected numbers"),
+                ),
+            )
+            push!(entries, entry)
+        end
+        push!(rows, entries)
+    end
+    return rows
+end
+
+function bundle_matrix(bundle::AbstractDict, name::String)
+    rows = bundle_rows(bundle, name)
+    width = length(rows)
+    entries = Matrix{Float64}(undef, width, width)
+    for (index, row) in enumerate(rows)
+        length(row) == width || throw(
+            ModelFileError(
+                string("\"", name, "\" row ", index, " has ", length(row), " entries, expected ", width),
+            ),
+        )
+        entries[index, :] = row
+    end
+    return entries
+end
+
+function bundle_moment(bundle::AbstractDict, name::String)
+    haskey(bundle, name) || return nothing
+    bundle[name] === nothing && return nothing
+    stamped = bundle_text(bundle, name)
+    return try
+        DateTime(stamped)
+    catch error
+        error isa InterruptException && rethrow()
+        throw(ModelFileError(string("\"", name, "\" is not a timestamp: ", stamped)))
+    end
+end
+
+function build_from_bundle(bundle::AbstractDict)
+    config = bundle_object(bundle, "config")
+    prior_bundle = bundle_object(config, "prior")
+    scaler_bundle = bundle_object(bundle, "scaler")
+    stored = bundle_object(bundle, "model")
+    saved = bundle_object(bundle, "state")
+
     model = BayesianReturnModel(
-        feature_names;
-        horizon_bars = Int(config["horizon_bars"]),
-        forgetting = Float64(config["forgetting"]),
+        bundle_names(config, "feature_names");
+        horizon_bars = bundle_whole(config, "horizon_bars"),
+        forgetting = bundle_number(config, "forgetting"),
         prior = NormalInverseGammaPrior(
-            convert(Vector{Float64}, prior_bundle["mean"]),
-            precision,
-            Float64(prior_bundle["shape"]),
-            Float64(prior_bundle["rate"]),
+            bundle_numbers(prior_bundle, "mean"),
+            bundle_matrix(prior_bundle, "precision"),
+            bundle_number(prior_bundle, "shape"),
+            bundle_number(prior_bundle, "rate"),
         ),
     )
 
     restore!(
         model;
         scaler = FeatureScaler(
-            Symbol[Symbol(name) for name in scaler_bundle["names"]],
-            convert(Vector{Float64}, scaler_bundle["centres"]),
-            convert(Vector{Float64}, scaler_bundle["scales"]),
+            bundle_names(scaler_bundle, "names"),
+            bundle_numbers(scaler_bundle, "centres"),
+            bundle_numbers(scaler_bundle, "scales"),
         ),
-        regression_state = bundle["state"],
-        n_observations = Int(stored["n_observations"]),
-        fitted_at = unstamp(get(stored, "fitted_at", nothing)),
-        train_start = unstamp(get(stored, "train_start", nothing)),
-        train_end = unstamp(get(stored, "train_end", nothing)),
+        # The statistics are narrowed here rather than in `load_state!`, which is also reached
+        # from callers that already hold real vectors and should not have to know about files.
+        regression_state = Dict{String, Any}(
+            "xx" => bundle_rows(saved, "xx"),
+            "xy" => bundle_numbers(saved, "xy"),
+            "yy" => bundle_number(saved, "yy"),
+            "weight" => bundle_number(saved, "weight"),
+            "n_seen" => bundle_whole(saved, "n_seen"),
+        ),
+        n_observations = bundle_whole(stored, "n_observations"),
+        fitted_at = bundle_moment(stored, "fitted_at"),
+        train_start = bundle_moment(stored, "train_start"),
+        train_end = bundle_moment(stored, "train_end"),
     )
     return model
 end
 
 stamp(moment::Union{DateTime, Nothing}) = moment === nothing ? nothing : string(moment)
-unstamp(::Nothing) = nothing
-unstamp(value::AbstractString) = DateTime(value)
