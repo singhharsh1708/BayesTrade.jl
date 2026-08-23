@@ -183,9 +183,7 @@ function check_calendar_gaps(bars::AbstractVector{Bar}, symbol::AbstractString, 
     issues = QualityIssue[]
     for index in 1:(length(bars) - 1)
         earlier, later = bars[index], bars[index + 1]
-        missing_days = count(
-            is_trading_day, (Date(earlier.timestamp) + Day(1)):Day(1):(Date(later.timestamp) - Day(1)),
-        )
+        missing_days = trading_days_between(earlier.timestamp, later.timestamp)
         missing_days > max_gap_bars && push!(
             issues, QualityIssue(
                 check = :calendar_gap, severity = WARNING, symbol = symbol,
@@ -195,6 +193,26 @@ function check_calendar_gaps(bars::AbstractVector{Bar}, symbol::AbstractString, 
         )
     end
     return issues
+end
+
+"""
+    trading_days_between(earlier, later)
+
+Trading days strictly between two timestamps.
+
+Counted with an explicit loop rather than a stepped date range. The range constructor drags
+in overflow handling that does not infer cleanly, and a day-by-day walk over a gap that is
+almost always under a week is not the place to be clever.
+"""
+function trading_days_between(earlier::DateTime, later::DateTime)
+    day = Date(earlier) + Day(1)
+    final = Date(later) - Day(1)
+    counted = 0
+    while day <= final
+        is_trading_day(day) && (counted += 1)
+        day += Day(1)
+    end
+    return counted
 end
 
 function check_volume(bars::AbstractVector{Bar}, symbol::AbstractString)
