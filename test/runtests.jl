@@ -16,4 +16,9 @@ using Test
     include("test_calendar.jl")
     include("test_processes.jl")
     include("test_synthetic.jl")
+    include("test_store.jl")
+    include("test_csv_io.jl")
+    include("test_data_quality.jl")
+    include("test_sources.jl")
+    include("test_leakage.jl")
 end

@@ -30,6 +30,10 @@ include("models/interface.jl")
 include("data/calendar.jl")
 include("data/processes.jl")
 include("data/synthetic.jl")
+include("data/store.jl")
+include("data/csv_io.jl")
+include("data/quality.jl")
+include("data/sources.jl")
 
 export TradingMode, BACKTEST, PAPER, LIVE, is_simulated
 export Action, BUY, SELL, HOLD, NO_TRADE, is_actionable
@@ -80,5 +84,20 @@ export StochasticVolatilityReturns, log_volatility_mean
 export BarShape, SyntheticSeries, generate_series
 export closes, true_log_returns, true_volatility, true_states
 export realised_log_returns, bars_until
+
+export BarStore, InMemoryBarStore, Coverage, IntervalConflictError
+export upsert!, symbols, coverage, history, load_range, latest, bar_count
+export clear!, all_bars, align
+
+export BarFileError, write_bars, read_bars, save_store, load_store
+
+export Severity, INFO, WARNING, ERROR
+export QualityIssue, QualityReport, validate_bars, is_usable, summarise
+export of_severity, errors, warnings, split_ratio
+
+export BarSource, DataSourceError, SymbolNotFoundError, TransientSourceError
+export source_name, supported_intervals, supports, fetch_bars
+export SyntheticSource, seed_for, RetryingSource, delay_for
+export IngestionReport, ingest!, total_written, succeeded, failed, is_complete
 
 end # module
