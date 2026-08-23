@@ -98,6 +98,24 @@ rng() = Xoshiro(11)
             @test n_regimes(process) == 3
         end
 
+        @testset "it is a fixed point of the chain" begin
+            # The defining property, checked directly rather than trusting the solver.
+            distribution = stationary_distribution(process)
+            @test vec(transpose(distribution) * process.transitions) ≈ distribution
+        end
+
+        @testset "a reducible chain has no unique stationary distribution" begin
+            # Two closed communicating classes: every mixture of their stationary vectors
+            # is stationary, so there is no answer to return.
+            reducible = RegimeSwitchingReturns(
+                labels = ["a", "b"],
+                annual_drifts = [0.1, -0.1],
+                annual_volatilities = [0.2, 0.2],
+                transitions = [1.0 0.0; 0.0 1.0],
+            )
+            @test_throws ArgumentError stationary_distribution(reducible)
+        end
+
         @testset "the bear regime is the most volatile and the only negative one" begin
             path = simulate(process, LONG, rng())
             states = path.states

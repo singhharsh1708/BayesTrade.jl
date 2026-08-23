@@ -202,12 +202,35 @@ n_regimes(process::RegimeSwitchingReturns) = length(process.labels)
 """
     stationary_distribution(process)
 
-Long-run regime frequencies, from the leading left eigenvector.
+Long-run regime frequencies.
+
+Solved as a linear system rather than through an eigendecomposition. The stationary vector
+satisfies `pi' A = pi'` with `sum(pi) = 1`, which is a square real system once the
+normalisation replaces one redundant row. An eigensolver returns complex values that then
+need real-part and absolute-value cleanup, and the sign and ordering of its output are
+conventions rather than guarantees.
+
+A reducible chain has no unique stationary distribution, and the solve says so rather than
+returning whichever eigenvector came back first.
 """
 function stationary_distribution(process::RegimeSwitchingReturns)
-    values, vectors = eigen(transpose(process.transitions))
-    leading = abs.(real.(vectors[:, argmin(abs.(values .- 1))]))
-    return leading ./ sum(leading)
+    n = n_regimes(process)
+    system = Matrix{Float64}(transpose(process.transitions) - I)
+    system[n, :] .= 1.0
+    target = zeros(Float64, n)
+    target[n] = 1.0
+    # LAPACK reports a rank-deficient system as a LAPACKException rather than the
+    # SingularException the generic path uses, so both are caught.
+    try
+        return system \ target
+    catch error
+        (error isa SingularException || error isa LAPACKException) || rethrow()
+        throw(
+            ArgumentError(
+                "the transition matrix is reducible, so it has no unique stationary distribution",
+            ),
+        )
+    end
 end
 
 function simulate(process::RegimeSwitchingReturns, n_bars::Integer, rng::AbstractRNG)
