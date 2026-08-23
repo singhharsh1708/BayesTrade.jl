@@ -84,6 +84,84 @@ scale; a model that knows better defines its own method, and the conjugate updat
 hash and the predictive all follow unchanged. That is how the volatility-scaled variant arrives
 in Phase 5 without a second code path.
 
+## The Bayesian volatility model
+
+A conjugate inverse-gamma filter over the variance of one bar, and a posterior over how fast
+to forget it.
+
+```
+r | sigma^2 ~ Normal(mu, sigma^2)      z = (r - mu)^2
+
+S <- delta S + w                       Q <- delta Q + w z
+a  = a0 + S / 2                        b  = b0 + Q / 2
+```
+
+Volatility moves, so old evidence has to decay. How fast is the whole question, and it is not
+answerable in advance: the right memory length in a quiet market is not the right one in a
+violent one, and nothing announces which market today is. The usual answer is to pick a decay
+rate by hand. This runs the same filter at memory lengths of 10, 20, 40, 100 bars and forever,
+and weights them by their own one-step predictive record:
+
+```
+log wt_k <- alpha log w_k + L_k        w = softmax(log wt)
+```
+
+Left to itself, that posterior works out which market it is in. On stochastic-volatility data
+`E[delta]` settles near 0.91 and the shortest memory leads; on constant-volatility data it
+settles near 0.97. Nothing tells it which is which. Carrying the grid costs about 0.005 nats
+against the best single choice made in hindsight, and beats the worst by 0.23.
+
+### Two guarantees that are structural rather than clamped
+
+| Guarantee | Consequence |
+| --- | --- |
+| `a >= a0 > 1` | `df > 2` always, so the predictive mean and variance always exist |
+| `b >= b0 > 0` | the rate floor is unreachable, so a flat bar needs no special case |
+
+The second is why a zero return is harmless here. It is not a degenerate case to guard
+against; it is an ordinary and rather informative observation, and no logarithm is ever taken
+of an observation. The grid evidence drops every term of the log marginal that does not depend
+on the component, which is exact because such terms cancel in a softmax, and which removes the
+one term that would have been infinite at a flat bar.
+
+### What it emits
+
+A distribution over the forward **return**, not over volatility. A volatility forecast cannot
+be falsified against a number the market prints; a return predictive can, and the calibration
+machinery already scores exactly that. The consequence is that `walk_forward` and `assess`
+needed no changes at all to score this model.
+
+Two things about that output look like defects and are not:
+
+* The predictive is centred, so `P(return > 0)` is one half by construction and the Brier
+  score is exactly 0.25. The directional half of a calibration report carries no information
+  about this model. It forecasts spread, and spread is what should be scored.
+* `uncertainty` does not fall to zero with more data. It plateaus, because under a discount
+  you never become certain about a moving target. Measured on 600, 1500 and 4000 bars it sits
+  at 0.175, 0.198, 0.194; the same filter with no forgetting falls 0.029, 0.018, 0.011.
+
+Beside the return predictive sit the exact volatility posterior, a mixture of inverse-gammas,
+and the exact predictive for realised variance over `h` bars, a mixture of `2b BetaPrime(h/2,
+a)`. The mean of the second must equal the variance of the first, and does to a part in
+`1e12`. Two families derived independently agreeing on one quantity is a real check on both.
+
+`E[sigma]` and `sqrt(E[sigma^2])` are reported separately and deliberately. They differ by
+Jensen, and a position sizer that squares an expected volatility to get a variance
+systematically under-reserves, by more the less certain the filter is.
+
+### A missing bar is not a quiet bar
+
+A halted feed and a genuinely flat market both produce a return of zero, and the number alone
+cannot tell them apart. Getting it wrong is not symmetric: 500 absorbed zeros drive the
+estimate to 0.066 annual, while 500 skipped bars leave it at 0.382. Absorbing errs **narrow**,
+which is the one direction a risk system must never err.
+
+So the model never inspects the return to decide. If the feature is absent the bar is skipped,
+which ages the state without informing it, and the posterior widens back toward the prior
+rather than holding the last value. That is the exact closed-form answer, not an approximation
+of one: with no evidence the statistics decay to zero and the posterior returns to where it
+started. Deciding which bars are untrustworthy belongs to the data-quality layer, not here.
+
 ## Calibration
 
 A model that says 70% and is right half the time is worse than useless, because everything

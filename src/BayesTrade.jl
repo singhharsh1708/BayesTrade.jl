@@ -49,6 +49,7 @@ include("inference/online/linear.jl")
 include("inference/online/variance.jl")
 include("models/scaling.jl")
 include("models/return_model.jl")
+include("models/volatility_model.jl")
 include("inference/posterior/calibration.jl")
 include("inference/offline/walk_forward.jl")
 include("models/persistence.jl")
@@ -152,6 +153,9 @@ export predict_realised_variance, volatility_interval
 export FeatureScaler, fit_scaler, transform, transform_row, unscale_coefficients
 export BayesianReturnModel, HorizonMismatchError, design_columns, response_scale
 export can_predict, coefficient_report, restore!
+
+export VarianceSource, SquaredReturnSource, BayesianVolatilityModel
+export source_columns, source_name, observe, absorb!, feature_names, predictive_df
 
 export CoveragePoint, ReliabilityBin, CalibrationReport, coverage_error, reliability_gap
 export interval_calibration_error, is_overconfident, assess

@@ -9,7 +9,7 @@ tests pass in CI and the capability is reachable from the CLI or the API.
 | 2 | Historical data ingestion (synthetic + vendor adapter) | done |
 | 3 | Leak-free feature generation | done |
 | 4 | Bayesian price/return model | done |
-| 5 | Bayesian volatility model | in progress |
+| 5 | Bayesian volatility model | in progress (PRs 1 and 2 of 3) |
 | 6 | Market regime model | pending |
 | 7 | Bayesian fusion layer | pending |
 | 8 | Event-driven backtester and walk-forward | pending |
