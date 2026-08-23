@@ -8,8 +8,8 @@ tests pass in CI and the capability is reachable from the CLI or the API.
 | 1 | Package architecture, domain types, config, model interfaces | done |
 | 2 | Historical data ingestion (synthetic + vendor adapter) | done |
 | 3 | Leak-free feature generation | done |
-| 4 | Bayesian price/return model | in progress |
-| 5 | Bayesian volatility model | pending |
+| 4 | Bayesian price/return model | done |
+| 5 | Bayesian volatility model | in progress |
 | 6 | Market regime model | pending |
 | 7 | Bayesian fusion layer | pending |
 | 8 | Event-driven backtester and walk-forward | pending |

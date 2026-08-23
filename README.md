@@ -47,7 +47,8 @@ news/sentiment, market regime, portfolio context) each produce a probabilistic r
 hierarchical fusion layer weights them by learned reliability rather than averaging them,
 and emits a single posterior over the forward return.
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the component map and
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the component map,
+[docs/MODELS.md](docs/MODELS.md) for the probabilistic models, and
 [docs/ROADMAP.md](docs/ROADMAP.md) for build order.
 
 ## Getting started

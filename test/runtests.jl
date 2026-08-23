@@ -1,6 +1,7 @@
 using BayesTrade
 using Dates
 using Distributions
+using JSON3
 using LinearAlgebra
 using Random
 using Statistics
@@ -31,5 +32,6 @@ using Test
     include("test_return_model.jl")
     include("test_calibration.jl")
     include("test_walk_forward.jl")
+    include("test_persistence.jl")
     include("test_leakage.jl")
 end

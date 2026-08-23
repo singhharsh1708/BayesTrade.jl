@@ -13,6 +13,7 @@ module BayesTrade
 
 using Dates
 using Distributions
+using JSON3
 using LinearAlgebra
 using Printf
 using Random
@@ -49,6 +50,8 @@ include("models/scaling.jl")
 include("models/return_model.jl")
 include("inference/posterior/calibration.jl")
 include("inference/offline/walk_forward.jl")
+include("models/persistence.jl")
+include("models/report.jl")
 
 export TradingMode, BACKTEST, PAPER, LIVE, is_simulated
 export Action, BUY, SELL, HOLD, NO_TRADE, is_actionable
@@ -148,5 +151,8 @@ export coverage_curve, reliability_curve, expected_calibration_error, brier_scor
 
 export WalkForwardConfig, PredictionRecord, walk_forward, outcomes, predictives
 export went_up, prediction_error
+
+export ModelFileError, save_model, load_model
+export FitReport, fit_return_model, summarise
 
 end # module
