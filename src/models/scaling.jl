@@ -29,21 +29,33 @@ struct FeatureScaler
             names::AbstractVector{Symbol}, centres::AbstractVector{<:Real},
             scales::AbstractVector{<:Real},
         )
-        width = length(names)
-        (length(centres) == width && length(scales) == width) || throw(
+        # Converted before being checked, as elsewhere in the package. Reducing over an
+        # abstractly typed vector drags in implementations this code will never see, and the
+        # concrete loop below says exactly which scale is at fault when one is.
+        columns = convert(Vector{Symbol}, names)
+        centre_values = convert(Vector{Float64}, centres)
+        scale_values = convert(Vector{Float64}, scales)
+        width = length(columns)
+
+        (length(centre_values) == width && length(scale_values) == width) || throw(
             ArgumentError(
                 string(
-                    "scaler for ", width, " features got ", length(centres),
-                    " centres and ", length(scales), " scales",
+                    "scaler for ", width, " features got ", length(centre_values),
+                    " centres and ", length(scale_values), " scales",
                 ),
             ),
         )
-        all(>(0), scales) || throw(ArgumentError("every scale must be positive"))
-        return new(
-            convert(Vector{Symbol}, names),
-            convert(Vector{Float64}, centres),
-            convert(Vector{Float64}, scales),
-        )
+        for index in 1:width
+            scale_values[index] > 0 || throw(
+                ArgumentError(
+                    string(
+                        "every scale must be positive, but ", columns[index], " has ",
+                        scale_values[index],
+                    ),
+                ),
+            )
+        end
+        return new(columns, centre_values, scale_values)
     end
 end
 
