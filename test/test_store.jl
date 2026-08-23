@@ -126,6 +126,52 @@ filled_store(n = 10; symbol = "RELIANCE") =
         @test [bar.timestamp for bar in bars] == [STORE_START + Day(d) for d in 2:5]
     end
 
+    @testset "inclusive bounds that fall between bars" begin
+        # Both bounds are inclusive, so the lower one must land on the first bar at or
+        # after it. Bisecting the lower bound the same way as the upper one quietly adds a
+        # bar from before the requested window whenever the bound is off-stamp, which is
+        # most of the time.
+        store = filled_store(10)
+        between = STORE_START + Day(3) + Hour(6)
+
+        @testset "load_range excludes the bar before an off-stamp start" begin
+            bars = load_range(store, "RELIANCE", between, STORE_START + Day(6))
+            @test first(bars).timestamp == STORE_START + Day(4)
+            @test all(bar -> bar.timestamp >= between, bars)
+        end
+
+        @testset "a start after the whole series returns nothing" begin
+            @test isempty(load_range(store, "RELIANCE", STORE_START + Day(50)))
+        end
+
+        @testset "a start before the whole series returns everything" begin
+            @test length(load_range(store, "RELIANCE", STORE_START - Day(50))) == 10
+        end
+
+        @testset "an exactly-on-stamp start still includes that bar" begin
+            bars = load_range(store, "RELIANCE", STORE_START + Day(4), STORE_START + Day(6))
+            @test first(bars).timestamp == STORE_START + Day(4)
+            @test length(bars) == 3
+        end
+
+        @testset "history since behaves the same way" begin
+            window = history(
+                store, "RELIANCE"; as_of = STORE_START + Day(8), since = between,
+            )
+            @test first(window).timestamp == STORE_START + Day(4)
+            @test all(bar -> bar.timestamp >= between, window)
+        end
+
+        @testset "a since after as_of yields nothing" begin
+            @test isempty(
+                history(
+                    store, "RELIANCE";
+                    as_of = STORE_START + Day(2), since = STORE_START + Day(8),
+                ),
+            )
+        end
+    end
+
     @testset "coverage describes what is held" begin
         found = coverage(filled_store(10), "RELIANCE")
         @test found.symbol == "RELIANCE"

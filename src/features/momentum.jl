@@ -30,15 +30,20 @@ const EMA_WARMUP_MULTIPLE = 3
 
 Whether `values` vary only by floating-point noise.
 
-An exact comparison against zero is not enough: the mean of twenty identical logs is not
-always exactly that log, so a genuinely flat series leaves a residual around `1e-31` that a
-naive check reads as real variance.
+An exact comparison against zero is not enough: bit-identical inputs can still produce a
+non-zero residual once a mean has been subtracted from them.
+
+Measured as a spread rather than as a variance about the mean, which is the whole point. A
+variance has to subtract a mean, and the rounding error of that mean grows with the length of
+the vector, so a tolerance calibrated on a short window declares a long, genuinely flat one
+to be varying. The spread of a bit-identical vector is exactly zero at any length, so the
+tolerance only ever has to cover inputs that genuinely differ by a few units in the last
+place.
 """
 function is_flat(values::AbstractVector{Float64})
     scale = maximum(abs, values)
-    tolerance = (eps(Float64) * max(scale, 1.0))^2 * length(values)
-    centred = values .- mean(values)
-    return dot(centred, centred) <= tolerance
+    spread = maximum(values) - minimum(values)
+    return spread <= eps(Float64) * max(scale, 1.0) * length(values)
 end
 
 seeded_ema(values::AbstractVector{Float64}, window::Int) = begin
