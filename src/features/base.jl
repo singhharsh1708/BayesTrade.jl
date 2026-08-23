@@ -79,10 +79,20 @@ struct FeatureSet
 
     function FeatureSet(features::AbstractVector{<:Feature})
         isempty(features) && throw(ArgumentError("a feature set needs at least one feature"))
-        names = [feature_name(feature) for feature in features]
-        duplicates = sort(unique(name for name in names if count(==(name), names) > 1))
-        isempty(duplicates) ||
-            throw(ArgumentError("duplicate feature names: $(join(duplicates, ", "))"))
+        # Tallied through a dictionary rather than counting each name against the whole
+        # list. Quadratic is irrelevant at this size, but the counting predicate does not
+        # infer cleanly and this reads as what it is.
+        tally = Dict{Symbol, Int}()
+        for feature in features
+            name = feature_name(feature)
+            tally[name] = get(tally, name, 0) + 1
+        end
+        duplicates = sort!(Symbol[name for (name, seen) in tally if seen > 1])
+        isempty(duplicates) || throw(
+            ArgumentError(
+                string("duplicate feature names: ", join(string.(duplicates), ", ")),
+            ),
+        )
         return new(Feature[feature for feature in features])
     end
 end
