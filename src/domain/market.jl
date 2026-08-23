@@ -236,8 +236,10 @@ Base.@kwdef struct FundamentalSnapshot
         if Date(reported_at) < period_end
             throw(
                 ArgumentError(
-                    "$symbol: reported_at $(Date(reported_at)) precedes period_end " *
-                        "$period_end, which is not physically possible",
+                    string(
+                        "$symbol: reported_at $(Date(reported_at)) precedes ",
+                        "period_end $period_end, which is not physically possible",
+                    ),
                 ),
             )
         end

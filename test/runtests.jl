@@ -10,4 +10,7 @@ using Test
     include("test_enums.jl")
     include("test_market.jl")
     include("test_probabilistic.jl")
+    include("test_limits.jl")
+    include("test_settings.jl")
+    include("test_model_interface.jl")
 end

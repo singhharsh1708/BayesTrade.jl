@@ -16,6 +16,7 @@ using Distributions
 using LinearAlgebra
 using Printf
 using Random
+using SHA
 using SpecialFunctions
 using Statistics
 using StatsBase
@@ -23,6 +24,9 @@ using StatsBase
 include("domain/enums.jl")
 include("domain/market.jl")
 include("domain/probabilistic.jl")
+include("config/limits.jl")
+include("config/settings.jl")
+include("models/interface.jl")
 
 export TradingMode, BACKTEST, PAPER, LIVE, is_simulated
 export Action, BUY, SELL, HOLD, NO_TRADE, is_actionable
@@ -50,5 +54,16 @@ export probability_above, probability_below, probability_positive, probability_l
 export LabelledCategorical, probability_of, most_likely, normalised_entropy
 export uniform_categorical, normalise
 export ProbabilisticResult, epistemic_share
+
+export RiskLimits, CONSERVATIVE, max_concurrent_position_weight, is_position_cap_binding
+export Secret, reveal
+export BrokerSettings, has_credentials, has_session
+export DataSettings, ExecutionSettings, total_cost_bps, round_trip_cost
+export Settings, load_settings, describe, doctor, is_live
+
+export ProbabilisticModel, NotFittedError, FitState
+export fit_state, model_name, model_semver, model_version, parameters, uncertainty
+export fit!, update!, predict, is_fitted, n_observations
+export mark_fitted!, reset!, require_fitted, params_hash, stable_hash
 
 end # module
