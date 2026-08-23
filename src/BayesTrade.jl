@@ -44,6 +44,7 @@ include("features/volatility.jl")
 include("features/volume.jl")
 include("features/labels.jl")
 include("features/presets.jl")
+include("inference/online/linear.jl")
 
 export TradingMode, BACKTEST, PAPER, LIVE, is_simulated
 export Action, BUY, SELL, HOLD, NO_TRADE, is_actionable
@@ -125,5 +126,11 @@ export DownsideVolatility, VolatilityRatio, AverageTrueRange
 export RelativeVolume, VolumeZScore, MedianTurnover, AmihudIlliquidity
 export Label, TrainingExample, forward_label, build_training_set, is_positive
 export minimal_feature_set, default_feature_set
+
+export NormalInverseGammaPrior, weakly_informative_prior, expected_noise_variance
+export BayesianLinearModel, n_features, n_absorbed, effective_sample_size
+export posterior_precision, posterior_shape, posterior_rate, coefficients
+export noise_variance, residual_scale, coefficient_covariance, coefficient_std
+export predict_mean, state, load_state!, solve_precision
 
 end # module

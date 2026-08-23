@@ -1,6 +1,7 @@
 using BayesTrade
 using Dates
 using Distributions
+using LinearAlgebra
 using Random
 using Statistics
 using Test
@@ -26,5 +27,6 @@ using Test
     include("test_volatility_features.jl")
     include("test_volume_features.jl")
     include("test_labels.jl")
+    include("test_linear.jl")
     include("test_leakage.jl")
 end
