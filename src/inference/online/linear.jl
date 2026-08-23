@@ -75,8 +75,21 @@ struct NormalInverseGammaPrior
                 ),
             ),
         )
-        matrix ≈ transpose(matrix) ||
-            throw(ArgumentError("prior precision must be symmetric"))
+        # Checked elementwise rather than through `isapprox` against a transposed view. The
+        # norm-based comparison answers a different question — whether the matrices are
+        # close overall — where what matters is that no single pair of entries disagrees,
+        # and a large well-conditioned block would otherwise mask a small asymmetric one.
+        for column in 1:width, row in 1:(column - 1)
+            isapprox(matrix[row, column], matrix[column, row]; atol = 1.0e-12) || throw(
+                ArgumentError(
+                    string(
+                        "prior precision must be symmetric, but entry (", row, ", ",
+                        column, ") is ", matrix[row, column], " against ",
+                        matrix[column, row],
+                    ),
+                ),
+            )
+        end
 
         # Checked by attempting a factorisation rather than by decomposing. A Cholesky
         # succeeds exactly when the matrix is positive definite, and nudging the diagonal
