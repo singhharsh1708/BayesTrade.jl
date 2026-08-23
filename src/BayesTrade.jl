@@ -46,6 +46,7 @@ include("features/volume.jl")
 include("features/labels.jl")
 include("features/presets.jl")
 include("inference/online/linear.jl")
+include("inference/online/variance.jl")
 include("models/scaling.jl")
 include("models/return_model.jl")
 include("inference/posterior/calibration.jl")
@@ -139,6 +140,14 @@ export BayesianLinearModel, n_features, n_absorbed, effective_sample_size
 export posterior_precision, posterior_shape, posterior_rate, coefficients
 export noise_variance, residual_scale, coefficient_covariance, coefficient_std
 export predict_mean, state, load_state!, solve_precision
+
+export InverseGammaPrior, variance_prior, DiscountedVarianceFilter
+export DEFAULT_DISCOUNTS, n_components, n_skipped, discount_grid, discount_weights
+export expected_discount, discount_entropy, discount_disagreement, steady_state_shape
+export evolved_shape, evolved_rate, expected_volatility, expected_log_volatility
+export volatility_uncertainty, plugin_variance, variance_inflation
+export observe_variance!, skip_observation!, return_predictive, variance_posterior
+export predict_realised_variance, volatility_interval
 
 export FeatureScaler, fit_scaler, transform, transform_row, unscale_coefficients
 export BayesianReturnModel, HorizonMismatchError, design_columns, response_scale
