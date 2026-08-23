@@ -45,6 +45,8 @@ include("features/volume.jl")
 include("features/labels.jl")
 include("features/presets.jl")
 include("inference/online/linear.jl")
+include("models/scaling.jl")
+include("models/return_model.jl")
 
 export TradingMode, BACKTEST, PAPER, LIVE, is_simulated
 export Action, BUY, SELL, HOLD, NO_TRADE, is_actionable
@@ -132,5 +134,9 @@ export BayesianLinearModel, n_features, n_absorbed, effective_sample_size
 export posterior_precision, posterior_shape, posterior_rate, coefficients
 export noise_variance, residual_scale, coefficient_covariance, coefficient_std
 export predict_mean, state, load_state!, solve_precision
+
+export FeatureScaler, fit_scaler, transform, transform_row, unscale_coefficients
+export BayesianReturnModel, HorizonMismatchError, design_columns, response_scale
+export can_predict, coefficient_report, restore!
 
 end # module
