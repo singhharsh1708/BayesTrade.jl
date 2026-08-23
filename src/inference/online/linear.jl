@@ -463,7 +463,9 @@ function load_state!(model::BayesianLinearModel, saved::AbstractDict)
         )
         xx[index, :] = convert(Vector{Float64}, row)
     end
-    xy = convert(Vector{Float64}, saved["xy"])
+    # Copied, since `convert` is a no-op on a vector that already has the right type and
+    # the model would otherwise share memory with the caller's dictionary.
+    xy = copy(convert(Vector{Float64}, saved["xy"]))
     length(xy) == size ||
         throw(ArgumentError(string("state describes ", length(xy), " linear terms")))
 

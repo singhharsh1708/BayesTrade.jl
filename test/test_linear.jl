@@ -390,6 +390,16 @@ end
             @test coefficients(restored) ≈ coefficients(model)
         end
 
+        @testset "a restored model does not share memory with what restored it" begin
+            model = linfitted(500)
+            saved = state(model)
+            restored = BayesianLinearModel(linprior())
+            load_state!(restored, saved)
+            before = coefficients(restored)
+            saved["xy"][1] = -999.0
+            @test coefficients(restored) ≈ before
+        end
+
         @testset "a mismatched state is refused" begin
             model = BayesianLinearModel(linprior())
             @test_throws ArgumentError load_state!(
