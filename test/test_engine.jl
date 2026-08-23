@@ -92,6 +92,100 @@ engine() = FeatureEngine(ENGINE_STORE, FeatureSet([LogReturn(1), SimpleReturn(20
         end
     end
 
+    @testset "a feature can be absent for three different reasons" begin
+        # Waiting fixes a warm-up. It does not fix a window that has no z-score because the
+        # stock did not move, so the two are recorded apart.
+        flat_bars = Bar[
+            Bar("FLAT", DateTime(2024, 1, 1, 10, 0) + Day(i), 50.0, 50.0, 50.0, 50.0, 1000.0)
+                for i in 0:99
+        ]
+        flat_engine = FeatureEngine(
+            InMemoryBarStore(flat_bars), FeatureSet([PriceZScore(20), LogReturn(1)]),
+        )
+
+        @testset "a warmed-up feature that declines is called undefined, not warming up" begin
+            vector = features_at(flat_engine, "FLAT", flat_bars[end].timestamp)
+            @test vector.n_bars >= required_bars(PriceZScore(20))
+            @test :price_zscore_20 in vector.missing_features
+            @test :price_zscore_20 in vector.undefined_features
+            @test occursin(
+                "is undefined on this window",
+                sprint(
+                    showerror, try
+                        require(vector, :price_zscore_20)
+                    catch error
+                        error
+                    end
+                ),
+            )
+        end
+
+        @testset "a genuine warm-up is still called a warm-up" begin
+            early = features_at(flat_engine, "FLAT", flat_bars[5].timestamp)
+            @test :price_zscore_20 in early.missing_features
+            @test !(:price_zscore_20 in early.undefined_features)
+            @test occursin(
+                "still warming up",
+                sprint(
+                    showerror, try
+                        require(early, :price_zscore_20)
+                    catch error
+                        error
+                    end
+                ),
+            )
+        end
+
+        @testset "an unrequested feature is neither" begin
+            vector = features_at(flat_engine, "FLAT", flat_bars[end].timestamp)
+            @test occursin(
+                "was never requested",
+                sprint(
+                    showerror, try
+                        require(vector, :nonsense)
+                    catch error
+                        error
+                    end
+                ),
+            )
+        end
+
+        @testset "undefined features must also be recorded as missing" begin
+            @test_throws ArgumentError FeatureVector(
+                symbol = "FLAT", as_of = DateTime(2024, 1, 1), n_bars = 0,
+                undefined_features = [:price_zscore_20],
+            )
+        end
+
+        @testset "first_complete_at refuses a moment where a feature declines" begin
+            # Counting bars against the warm-up would hand a backtest a starting point at
+            # which its first decision cannot be made.
+            @test first_complete_at(flat_engine, "FLAT") === nothing
+        end
+
+        @testset "it finds the first moment that is genuinely complete" begin
+            moving = vcat(
+                flat_bars[1:60],
+                Bar[
+                    (
+                            c = 50.0 * exp(0.01 * i);
+                            Bar(
+                                "FLAT", DateTime(2024, 1, 1, 10, 0) + Day(60 + i),
+                                c, c, c, c, 1000.0,
+                            )
+                        ) for i in 1:40
+                ],
+            )
+            engine = FeatureEngine(
+                InMemoryBarStore(moving), FeatureSet([PriceZScore(20), LogReturn(1)]),
+            )
+            found = first_complete_at(engine, "FLAT")
+            @test found !== nothing
+            @test found > flat_bars[61].timestamp
+            @test is_complete(features_at(engine, "FLAT", found))
+        end
+    end
+
     @testset "staleness" begin
         @testset "a vector records both the question and the answer" begin
             moment = ENGINE_SERIES.bars[51].timestamp

@@ -65,10 +65,23 @@ end
 """
     first_complete_at(engine, symbol)
 
-The earliest moment every feature has a value. Where a backtest may begin.
+The earliest moment every feature actually has a value, or `nothing` if there is no such
+moment.
+
+Counting bars against the set's warm-up is not enough. A feature can have all the history it
+asked for and still decline, because the window was degenerate: a stock that did not move all
+week has no z-score. Returning the warm-up bar's timestamp regardless would hand a backtest a
+starting point at which its first decision cannot be made.
+
+So this walks forward and checks. It is called once at setup, and paying a scan there is
+better than discovering the gap on the first bar of a run.
 """
 function first_complete_at(engine::FeatureEngine, symbol::AbstractString)
     bars = load_range(engine.store, symbol)
     length(bars) < warmup_bars(engine) && return nothing
-    return bars[warmup_bars(engine)].timestamp
+    for index in warmup_bars(engine):length(bars)
+        moment = bars[index].timestamp
+        is_complete(features_at(engine, symbol, moment)) && return moment
+    end
+    return nothing
 end

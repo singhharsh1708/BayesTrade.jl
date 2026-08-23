@@ -23,5 +23,8 @@ using Test
     include("test_features.jl")
     include("test_momentum.jl")
     include("test_engine.jl")
+    include("test_volatility_features.jl")
+    include("test_volume_features.jl")
+    include("test_labels.jl")
     include("test_leakage.jl")
 end

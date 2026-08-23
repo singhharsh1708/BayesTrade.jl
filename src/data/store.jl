@@ -142,6 +142,12 @@ end
 Bars that had closed by `as_of`, oldest first.
 
 `count` keeps the most recent `count` of them, which is what a rolling feature window needs.
+`since` bounds the window from below and is inclusive, like `as_of` bounds it from above.
+
+Both bounds are inclusive, so the lower one bisects with `searchsortedfirst` and the upper
+with `searchsortedlast`. Using the same bisect for both would quietly include one bar from
+before the requested window whenever the bound does not land exactly on a stored timestamp,
+which is most of the time.
 """
 function history(
         store::InMemoryBarStore, symbol::AbstractString;
@@ -156,7 +162,7 @@ function history(
 
     stamps = store.stamps[symbol]
     stop = searchsortedlast(stamps, as_of)
-    start = since === nothing ? 1 : max(1, searchsortedlast(stamps, since))
+    start = since === nothing ? 1 : searchsortedfirst(stamps, since)
     stop < start && return Bar[]
 
     window = view(bars, start:stop)
@@ -168,7 +174,8 @@ end
 """
     load_range(store, symbol, start = nothing, stop = nothing)
 
-An arbitrary window. Not safe inside a feature; see the module docstring.
+An arbitrary window, inclusive at both ends. Not safe inside a feature; see the module
+docstring.
 """
 function load_range(
         store::InMemoryBarStore, symbol::AbstractString,
@@ -178,7 +185,7 @@ function load_range(
     bars = get(store.bars, symbol, nothing)
     (bars === nothing || isempty(bars)) && return Bar[]
     stamps = store.stamps[symbol]
-    lower = start === nothing ? 1 : max(1, searchsortedlast(stamps, start))
+    lower = start === nothing ? 1 : searchsortedfirst(stamps, start)
     upper = stop === nothing ? length(bars) : searchsortedlast(stamps, stop)
     upper < lower && return Bar[]
     return collect(view(bars, lower:upper))

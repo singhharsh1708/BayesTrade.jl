@@ -223,10 +223,36 @@
         end
     end
 
-    @testset "flatness is detected against a relative tolerance" begin
-        # The mean of twenty identical logs is not always exactly that log, so an exact
-        # check reads a residual around 1e-31 as real variance.
-        @test is_flat(log.(fill(100.0, 20)))
-        @test !is_flat(log.(exponential(20, 0.001)))
+    @testset "flatness" begin
+        @testset "a bit-identical series is flat at any price and any length" begin
+            # Measured as a spread rather than a variance about the mean. A variance has to
+            # subtract a mean, whose rounding error grows with the length of the vector, so
+            # a tolerance calibrated on a short window declares a long flat one to be
+            # varying. At a close of 50 this failed at twenty bars.
+            for price in (1.0, 50.0, 100.0, 1234.56, 99_999.0)
+                for n in (3, 20, 60, 200, 2_000)
+                    @test is_flat(log.(fill(price, n)))
+                end
+            end
+        end
+
+        @testset "a genuine trend is not flat" begin
+            @test !is_flat(log.(exponential(20, 0.001)))
+            @test !is_flat(log.(exponential(2_000, 1.0e-5)))
+        end
+
+        @testset "a difference of one unit in the last place is still flat" begin
+            @test is_flat([1.0, nextfloat(1.0), 1.0])
+        end
+    end
+
+    @testset "a flat window declines rather than dividing by rounding noise" begin
+        # The downstream consequence: at a close of 50 the old tolerance let PriceZScore
+        # through, and it divided by a standard deviation of about 1e-15.
+        for price in (50.0, 100.0, 1234.56)
+            window = featurewindow(fill(price, 30))
+            @test evaluate(PriceZScore(20), window) === nothing
+            @test evaluate(TrendQuality(20), window) === nothing
+        end
     end
 end

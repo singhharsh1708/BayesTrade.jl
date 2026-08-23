@@ -7,6 +7,12 @@ the same, and the gap between them is exactly what matters when they are not: a 
 taken now from a bar three days old is stale, and a vector stamped only with the bar's own
 time cannot say so.
 
+A feature can be absent for two different reasons, and they need different responses. It may
+not have enough history yet, which time fixes. Or it may have had enough history and still
+declined, because the window was degenerate: a stock that did not move all week has no
+z-score, and one that did not trade has no illiquidity ratio. Waiting does not fix that, so
+`undefined_features` records it separately from the warm-up.
+
 Non-finite values are rejected at construction. A NaN that reaches a model does not crash
 it; it silently poisons a posterior and every decision downstream, which is far worse than
 failing here.
@@ -23,6 +29,7 @@ struct FeatureVector
     data_as_of::Union{DateTime, Nothing}
     values::Dict{Symbol, Float64}
     missing_features::Vector{Symbol}
+    undefined_features::Vector{Symbol}
     n_bars::Int
 
     function FeatureVector(;
@@ -31,6 +38,7 @@ struct FeatureVector
             data_as_of::Union{DateTime, Nothing} = nothing,
             values::Dict{Symbol, Float64} = Dict{Symbol, Float64}(),
             missing_features::Vector{Symbol} = Symbol[],
+            undefined_features::Vector{Symbol} = Symbol[],
             n_bars::Integer = 0,
         )
         isempty(symbol) && throw(ArgumentError("feature vector needs a symbol"))
@@ -69,8 +77,18 @@ struct FeatureVector
                 ),
             ),
         )
+        stray = setdiff(Set(undefined_features), Set(missing_features))
+        isempty(stray) || throw(
+            ArgumentError(
+                string(
+                    symbol, ": ", join(sort(String[string(n) for n in stray]), ", "),
+                    " are undefined but not recorded as missing",
+                ),
+            ),
+        )
         return new(
-            String(symbol), as_of, data_as_of, values, missing_features, Int(n_bars),
+            String(symbol), as_of, data_as_of, values,
+            missing_features, undefined_features, Int(n_bars),
         )
     end
 end
@@ -113,13 +131,19 @@ Base.get(vector::FeatureVector, name::Symbol, default) = get(vector.values, name
 
 Read a feature, failing loudly if it is absent.
 
-Absence is usually a warm-up window, which is a real state a model must handle deliberately
-rather than by reading a zero that means nothing. The two failure modes are distinguished
-because they need different fixes.
+Absence is a real state a model must handle deliberately rather than by reading a zero that
+means nothing, and the three ways it arises are reported separately because each calls for a
+different response: wait, look at the data, or fix the caller.
 """
 function require(vector::FeatureVector, name::Symbol)
     haskey(vector.values, name) && return vector.values[name]
-    reason = name in vector.missing_features ? "still warming up" : "was never requested"
+    reason = if name in vector.undefined_features
+        "is undefined on this window"
+    elseif name in vector.missing_features
+        "still warming up"
+    else
+        "was never requested"
+    end
     throw(KeyError(string(vector.symbol, " at ", vector.as_of, ": ", name, " ", reason)))
 end
 
@@ -150,6 +174,9 @@ function subset(vector::FeatureVector, names)
         ),
         missing_features = Symbol[
             name for name in vector.missing_features if name in wanted
+        ],
+        undefined_features = Symbol[
+            name for name in vector.undefined_features if name in wanted
         ],
         n_bars = vector.n_bars,
     )

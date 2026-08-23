@@ -132,10 +132,16 @@ function compute(
     )
     values = Dict{Symbol, Float64}()
     missing_features = Symbol[]
+    undefined_features = Symbol[]
     for feature in set.features
         value = evaluate(feature, window)
         if value === nothing
-            push!(missing_features, feature_name(feature))
+            name = feature_name(feature)
+            push!(missing_features, name)
+            # This is the only place that knows both how long the window is and how long
+            # each feature needs, so it is the only place that can tell a warm-up apart
+            # from a feature that had its bars and still declined.
+            length(window) >= required_bars(feature) && push!(undefined_features, name)
         else
             values[feature_name(feature)] = Float64(value)
         end
@@ -146,6 +152,7 @@ function compute(
         data_as_of = window_as_of(window),
         values = values,
         missing_features = missing_features,
+        undefined_features = undefined_features,
         n_bars = length(window),
     )
 end

@@ -40,6 +40,10 @@ include("features/base.jl")
 include("features/engine.jl")
 include("features/price.jl")
 include("features/momentum.jl")
+include("features/volatility.jl")
+include("features/volume.jl")
+include("features/labels.jl")
+include("features/presets.jl")
 
 export TradingMode, BACKTEST, PAPER, LIVE, is_simulated
 export Action, BUY, SELL, HOLD, NO_TRADE, is_actionable
@@ -116,5 +120,10 @@ export LogReturn, SimpleReturn
 export MovingAverage, PriceToMovingAverage, MovingAverageSpread, Momentum
 export RelativeStrengthIndex, PriceZScore, DrawdownFromHigh, TrendSlope, TrendQuality
 export is_flat, regress
+export RealisedVolatility, EwmaVolatility, ParkinsonVolatility, GarmanKlassVolatility
+export DownsideVolatility, VolatilityRatio, AverageTrueRange
+export RelativeVolume, VolumeZScore, MedianTurnover, AmihudIlliquidity
+export Label, TrainingExample, forward_label, build_training_set, is_positive
+export minimal_feature_set, default_feature_set
 
 end # module
