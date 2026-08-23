@@ -24,6 +24,7 @@ using StatsBase
 include("domain/enums.jl")
 include("domain/market.jl")
 include("domain/probabilistic.jl")
+include("domain/features.jl")
 include("config/limits.jl")
 include("config/settings.jl")
 include("models/interface.jl")
@@ -34,6 +35,11 @@ include("data/store.jl")
 include("data/csv_io.jl")
 include("data/quality.jl")
 include("data/sources.jl")
+include("features/window.jl")
+include("features/base.jl")
+include("features/engine.jl")
+include("features/price.jl")
+include("features/momentum.jl")
 
 export TradingMode, BACKTEST, PAPER, LIVE, is_simulated
 export Action, BUY, SELL, HOLD, NO_TRADE, is_actionable
@@ -99,5 +105,16 @@ export BarSource, DataSourceError, SymbolNotFoundError, TransientSourceError
 export source_name, supported_intervals, supports, fetch_bars
 export SyntheticSource, seed_for, RetryingSource, delay_for
 export IngestionReport, ingest!, total_written, succeeded, failed, is_complete
+
+export FeatureVector, staleness, is_stale, feature_names, require, design_row, subset
+export BarWindow, window_symbol, current, window_as_of, turnovers, tail
+export Feature, FeatureSet, feature_name, columns, lookback, compute, required_bars
+export evaluate
+export empty_vector
+export FeatureEngine, warmup_bars, features_at, walk, first_complete_at
+export LogReturn, SimpleReturn
+export MovingAverage, PriceToMovingAverage, MovingAverageSpread, Momentum
+export RelativeStrengthIndex, PriceZScore, DrawdownFromHigh, TrendSlope, TrendQuality
+export is_flat, regress
 
 end # module

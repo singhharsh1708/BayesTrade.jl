@@ -20,5 +20,8 @@ using Test
     include("test_csv_io.jl")
     include("test_data_quality.jl")
     include("test_sources.jl")
+    include("test_features.jl")
+    include("test_momentum.jl")
+    include("test_engine.jl")
     include("test_leakage.jl")
 end
