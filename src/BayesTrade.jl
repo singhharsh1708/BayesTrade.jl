@@ -27,6 +27,9 @@ include("domain/probabilistic.jl")
 include("config/limits.jl")
 include("config/settings.jl")
 include("models/interface.jl")
+include("data/calendar.jl")
+include("data/processes.jl")
+include("data/synthetic.jl")
 
 export TradingMode, BACKTEST, PAPER, LIVE, is_simulated
 export Action, BUY, SELL, HOLD, NO_TRADE, is_actionable
@@ -65,5 +68,17 @@ export ProbabilisticModel, NotFittedError, FitState
 export fit_state, model_name, model_semver, model_version, parameters, uncertainty
 export fit!, update!, predict, is_fitted, n_observations
 export mark_fitted!, reset!, require_fitted, params_hash, stable_hash
+
+export BARS_PER_YEAR, ANNUALISER, NSE_CLOSE
+export is_trading_day, trading_days, session_close, annualise, deannualise
+
+export ReturnProcess, ProcessPath, simulate, process_parameters
+export GaussianReturns, AR1Returns, innovation_scale
+export RegimeSwitchingReturns, n_regimes, stationary_distribution
+export StochasticVolatilityReturns, log_volatility_mean
+
+export BarShape, SyntheticSeries, generate_series
+export closes, true_log_returns, true_volatility, true_states
+export realised_log_returns, bars_until
 
 end # module
