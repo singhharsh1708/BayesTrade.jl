@@ -55,12 +55,53 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the component map,
 
 Requires Julia 1.10 or later.
 
-```julia
-using Pkg
-Pkg.activate(".")
-Pkg.instantiate()
-Pkg.test()
+```sh
+julia --project=. -e 'using Pkg; Pkg.instantiate()'
+julia --project=. -e 'using Pkg; Pkg.test()'
 ```
+
+## Running it
+
+Two entry points, both on generated data. Neither needs credentials, a network or a broker.
+
+```sh
+# replay the pipeline over history and print what it believed and decided
+julia --project=. examples/backtest.jl          # both markets
+julia --project=. examples/backtest.jl edge     # just the one with an edge
+
+# drive the long-running session a tick at a time, as a live feed would
+julia --project=. examples/paper_session.jl
+julia --project=. examples/paper_session.jl 1400 journal.jsonl
+```
+
+`backtest.jl` runs two markets deliberately: one whose returns carry genuine
+autocorrelation, and one with none. The system trades the first and declines
+every bar of the second. Showing only the second makes it look inert; showing
+only the first makes it look like a backtest.
+
+`paper_session.jl` is the same code path a live session would run. The only
+difference is where the ticks come from, which is the point: nothing about the
+decision, risk or execution path changes when the feed becomes real.
+
+With a journal path it appends one JSON line per decision as it happens, so a
+session that is killed keeps everything up to the last line.
+
+## Going live
+
+Not yet, and not by accident. Two independent environment variables have to
+agree before anything can reach a venue:
+
+```sh
+export BAYESTRADE_TRADING_MODE=live
+export BAYESTRADE_ALLOW_LIVE_TRADING=true
+export KITE_API_KEY=...
+export KITE_API_SECRET=...
+```
+
+One of them set alone does nothing. Beyond that, `src/kite/` has never spoken to
+Zerodha: the tick protocol is tested against frames laid out byte by byte and
+the REST client against a stub transport, so the first real call will be the
+first real test.
 
 ## Status
 
