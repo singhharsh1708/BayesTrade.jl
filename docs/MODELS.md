@@ -198,6 +198,67 @@ not a scale: it would divide a real return by nothing when fitting and collapse 
 to a point when predicting. The floor is what a flat window is worth, and it is recorded in
 the model's parameters so a reader can see which one was used.
 
+## The market regime model
+
+Three states, hidden, filtered exactly.
+
+```
+A = lambda I + (1 - lambda) 1 pi'        mu_k = c + m g_k        sigma_k^2 = s^2 (1 + kappa u_k)
+```
+
+Fitting a hidden Markov model normally means Baum-Welch, which is expectation-maximisation:
+iterative, of variable duration, and banned from the trading loop. Two structural choices
+avoid it rather than approximate it.
+
+**The transition matrix has one parameter.** Hold with probability `lambda`, otherwise redraw
+from the long-run distribution. Then `pi` is the stationary distribution by construction rather
+than by an eigenproblem, `A^h` is closed form so horizon propagation is `O(K)` and exact, and
+the whole matrix is identified by a scalar that squared returns reveal. The cost is that this
+family cannot express a chain where bull to bear is forbidden but bull to sideways to bear is
+not.
+
+**State identity is prior, not learned.** Drifts and variances are fixed multiples of shape
+vectors whose sign pattern never moves. That is what makes the model immune to label switching:
+a learned mixture can swap which component is called bear between refits, which would make
+every stored prediction and every parameter hash meaningless without raising anything.
+
+Four scalars are estimated in five passes over the returns. Persistence is read from **squared**
+returns, where the regime signal actually lives, across a nineteen-lag baseline: consecutive
+lags differ by a few per cent where the sampling noise is fifteen, so a short-baseline ratio is
+mostly noise. Measured over twelve seeds at 10000 bars the short baseline has a standard
+deviation of 0.031 and reaches 0.992 against a true 0.947; the long one gives 0.018 and 0.953.
+
+### Checked against brute force
+
+The forward recursion has a second, exponential way to compute the same answer: enumerate every
+path through the chain and marginalise. Over seven bars that is 2187 paths, and it agrees to
+`1e-14`.
+
+### The variance splits three ways
+
+| Term | Reducible? |
+| --- | --- |
+| within-state noise, plus the chain jumping | no |
+| not knowing which state today is | yes |
+| not knowing the state means | yes |
+
+The three sum to the predictive variance exactly. Lumping all component spread into the
+epistemic bucket, the obvious shortcut, overstates what evidence can fix, because part of that
+spread is the transition itself firing.
+
+### What it is honest about
+
+Direction is identified mostly through the fact that bear markets are violent, which is prior
+structure rather than something the data taught the model. Bull is the weakest state. A market
+whose drawdowns are quiet is one this model reads poorly.
+
+The predictive is non-centred, so `P(return > 0)` genuinely moves with the belief, but not by
+enough to make the directional half of a calibration report informative: the measured Brier
+score is 0.25, and that is pinned in CI so a future reader cannot mistake it for a finding.
+
+Measured out of sample: state identification **+16.6 points** over the majority-class baseline,
+log score **+0.04 to +0.05 nats** over an iid Student-t fitted on the same window.
+
 ## Calibration
 
 A model that says 70% and is right half the time is worse than useless, because everything

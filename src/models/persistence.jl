@@ -103,6 +103,51 @@ function save_model(model::BayesianVolatilityModel, path::AbstractString)
 end
 
 """
+    save_model(model, path)
+
+Write a fitted regime model to `path`.
+
+The transition matrix is never written. It is one function of the persistence and the
+stationary distribution, both of which are, so reconstructing it removes a whole class of
+round-trip precision failure and a square-matrix reader this file would otherwise need.
+"""
+function save_model(model::MarketRegimeModel, path::AbstractString)
+    is_fitted(model) || throw(ArgumentError("refusing to save an unfitted model"))
+
+    parameters = model.filter.parameters
+    prior = parameters.prior
+    bundle = Dict{String, Any}(
+        "schema" => MODEL_SCHEMA_VERSION,
+        "model" => model_block(model),
+        "config" => Dict{String, Any}(
+            "source" => source_name(model.source),
+            "columns" => String[string(name) for name in feature_names(model)],
+            "horizon_bars" => model.horizon_bars,
+            "prior" => Dict{String, Any}(
+                "stationary" => copy(prior.stationary),
+                "drift_shape" => copy(prior.drift_shape),
+                "variance_shape" => copy(prior.variance_shape),
+                "persistence" => prior.persistence,
+                "drift_scale" => prior.drift_scale,
+                "dispersion" => prior.dispersion,
+                "shape" => prior.shape,
+                "strength" => prior.strength,
+            ),
+        ),
+        "parameters" => Dict{String, Any}(
+            "centre" => parameters.centre,
+            "drift_spread" => parameters.drift_spread,
+            "persistence" => parameters.persistence,
+            "mean_variance" => parameters.mean_variance,
+            "dispersion" => parameters.dispersion,
+            "n_rows" => parameters.n_rows,
+        ),
+        "state" => state(model.filter),
+    )
+    return write_bundle(bundle, path)
+end
+
+"""
     model_block(model)
 
 The identity block every bundle carries, whatever kind of model wrote it.
@@ -171,6 +216,8 @@ function load_model(path::AbstractString)
             build_return_model(bundle)
         elseif stored_name == "volatility"
             build_volatility_model(bundle)
+        elseif stored_name == "regime"
+            build_regime_model(bundle)
         else
             throw(ModelFileError(string(path, ": unknown model \"", stored_name, "\"")))
         end
@@ -443,6 +490,66 @@ function build_volatility_model(bundle::AbstractDict)
             "log_weights" => bundle_numbers(saved, "log_weights"),
             "n_seen" => bundle_count(saved, "n_seen"),
             "n_skipped" => bundle_count(saved, "n_skipped"),
+        ),
+        n_observations = bundle_count(stored, "n_observations"),
+        fitted_at = bundle_moment(stored, "fitted_at"),
+        train_start = bundle_moment(stored, "train_start"),
+        train_end = bundle_moment(stored, "train_end"),
+    )
+    return model
+end
+
+function build_regime_model(bundle::AbstractDict)
+    config = bundle_object(bundle, "config")
+    prior_bundle = bundle_object(config, "prior")
+    stored = bundle_object(bundle, "model")
+    saved_parameters = bundle_object(bundle, "parameters")
+    saved_state = bundle_object(bundle, "state")
+
+    source_kind = bundle_text(config, "source")
+    columns = bundle_names(config, "columns")
+    source_kind == "bar_return" ||
+        throw(ModelFileError(string("unknown regime source \"", source_kind, "\"")))
+    length(columns) == 1 || throw(
+        ModelFileError(string("a bar-return source reads one column, got ", length(columns))),
+    )
+
+    stationary = bundle_numbers(prior_bundle, "stationary")
+    length(stationary) == N_REGIMES || throw(
+        ModelFileError(
+            string("prior describes ", length(stationary), " states, expected ", N_REGIMES),
+        ),
+    )
+    prior = RegimePrior(;
+        stationary = (stationary[1], stationary[2], stationary[3]),
+        persistence = bundle_number(prior_bundle, "persistence"),
+        drift_scale = bundle_number(prior_bundle, "drift_scale"),
+        dispersion = bundle_number(prior_bundle, "dispersion"),
+        shape = bundle_number(prior_bundle, "shape"),
+        strength = bundle_number(prior_bundle, "strength"),
+    )
+
+    model = MarketRegimeModel(
+        BarReturnSource(first(columns));
+        horizon_bars = bundle_whole(config, "horizon_bars"), prior = prior,
+    )
+
+    restore!(
+        model;
+        parameters = RegimeParameters(
+            prior;
+            centre = bundle_number(saved_parameters, "centre"),
+            drift_spread = bundle_number(saved_parameters, "drift_spread"),
+            persistence = bundle_number(saved_parameters, "persistence"),
+            mean_variance = bundle_number(saved_parameters, "mean_variance"),
+            dispersion = bundle_number(saved_parameters, "dispersion"),
+            n_rows = bundle_count(saved_parameters, "n_rows"),
+        ),
+        filter_state = Dict{String, Any}(
+            "belief" => bundle_numbers(saved_state, "belief"),
+            "log_likelihood" => bundle_number(saved_state, "log_likelihood"),
+            "n_seen" => bundle_count(saved_state, "n_seen"),
+            "n_skipped" => bundle_count(saved_state, "n_skipped"),
         ),
         n_observations = bundle_count(stored, "n_observations"),
         fitted_at = bundle_moment(stored, "fitted_at"),
