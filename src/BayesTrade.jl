@@ -65,6 +65,8 @@ include("models/report.jl")
 include("portfolio/state.jl")
 include("decision/engine.jl")
 include("risk/engine.jl")
+include("execution/broker.jl")
+include("execution/paper.jl")
 include("backtest/replay.jl")
 
 export TradingMode, BACKTEST, PAPER, LIVE, is_simulated
@@ -181,6 +183,11 @@ export n_positions, position_weight, portfolio_exposure, sector_exposure, drawdo
 
 export TradeIntent, decide, decline, downside, size_by_risk
 export RiskCheck, RiskRuling, review, approved, failures, was_reduced, passed, failed
+
+export Broker, Order, Fill, OrderReceipt, place_order!, cancel_order!, broker_mode, is_live
+export is_buy, signed_quantity, cash_flow, was_filled
+export PaperBroker, PaperCosts, fill_price, commission, tradeable_quantity, apply!
+export mark_to_market!, equity, portfolio, order_from_ruling, next_order_id!
 
 export FeatureScaler, fit_scaler, transform, transform_row, unscale_coefficients
 export BayesianReturnModel, HorizonMismatchError, design_columns, response_scale
