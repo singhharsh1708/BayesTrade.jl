@@ -401,15 +401,35 @@ end
             review(intent, rk_portfolio(positions = at_ceiling), limits; sector = "pharma"),
         )
 
+        # The book ceiling, at it and under it. Six positions of ten per cent rather than
+        # twelve of five: twelve trips the open-positions limit first, so the book gate is
+        # never reached and the assertion passes on a refusal that had nothing to do with
+        # it.
         packed = Dict(
             string("NAME", index) => rk_position(
-                    string("NAME", index), 0.05;
+                    string("NAME", index), 0.1;
                     sector = string("sector", index)
                 )
-                for index in 1:12
+                for index in 1:6
         )
-        book = review(intent, rk_portfolio(positions = packed), limits; sector = "fresh")
-        @test book.approved_weight <= limits.max_portfolio_exposure - 0.6 + 1.0e-12
+        full_book = rk_portfolio(positions = packed)
+        @test portfolio_exposure(full_book) ≈ limits.max_portfolio_exposure
+        @test n_positions(full_book) < limits.max_open_positions
+        book = review(intent, full_book, limits; sector = "fresh")
+        @test !approved(book)
+        @test :portfolio_exposure in [check.name for check in failures(book)]
+
+        roomy = Dict(
+            string("NAME", index) => rk_position(
+                    string("NAME", index), 0.1;
+                    sector = string("sector", index)
+                )
+                for index in 1:5
+        )
+        under = review(intent, rk_portfolio(positions = roomy), limits; sector = "fresh")
+        @test approved(under)
+        @test under.approved_weight ≈ min(intent.target_weight, 0.1)
+        @test isempty(failures(under))
     end
 
     @testset "too many names refuses a new one but not an existing one" begin
