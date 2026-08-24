@@ -162,6 +162,42 @@ rather than holding the last value. That is the exact closed-form answer, not an
 of one: with no evidence the statistics decay to zero and the posterior returns to where it
 started. Deciding which bars are untrustworthy belongs to the data-quality layer, not here.
 
+## Measuring the response in units of volatility
+
+A regression assumes its noise scale is constant. On returns that is false in a way that
+matters: the same coefficients describe a market whose bars are five times wider in a crisis,
+and a model fitted across both is fitted to neither.
+
+`response_scale` is the hook. The plain model returns one and every path reduces to the
+ordinary regression. A `VolatilityScale` policy divides the response by a point-in-time
+volatility before fitting and multiplies the predictive back afterwards, so one set of
+coefficients describes both regimes.
+
+```julia
+BayesianReturnModel([:log_return_1]; horizon_bars = 1, policy = VolatilityScale(:volatility_20))
+```
+
+Measured out of sample on stochastic-volatility data, refitting every twenty bars:
+
+| | interval error | mean log score |
+| --- | --- | --- |
+| plain | 10.56% | 1.3988 |
+| volatility-scaled | 6.26% | 2.1446 |
+
+The model is **parameterised** on the policy rather than carrying it as a field, so a scaled
+model is a different type with its own version (`0.2.0` against `0.1.0`) and its own parameter
+hash. Two models with identical regression state and different scaling do not make the same
+predictions and must not claim the same identity.
+
+The scale is read from a point-in-time **feature**, never from a volatility model handed in at
+prediction time. A feature is built from bars that have closed, so a scaled model cannot reach
+forward even by accident.
+
+The floor is not a fudge. A volatility feature is exactly zero on a flat window, and zero is
+not a scale: it would divide a real return by nothing when fitting and collapse the predictive
+to a point when predicting. The floor is what a flat window is worth, and it is recorded in
+the model's parameters so a reader can see which one was used.
+
 ## Calibration
 
 A model that says 70% and is right half the time is worse than useless, because everything

@@ -63,7 +63,7 @@ vm_predict(model, example) = predict(
 
         @testset "absorbing a bar changes the model's identity" begin
             examples = vm_examples()
-            model = vm_fitted(; examples = examples)
+            model = vm_fitted(; examples = examples[1:(end - 1)])
             before = params_hash(model)
             update!(model, last(examples))
             @test params_hash(model) != before
@@ -392,7 +392,7 @@ end
     @testset "a reloaded model is the same model and still learns" begin
         mktempdir() do dir
             examples = vm_examples(; n_bars = 1_200)
-            original = vm_fitted(; examples = examples)
+            original = vm_fitted(; examples = examples[1:(end - 21)])
             path = joinpath(dir, "volatility.json")
             save_model(original, path)
             restored = load_model(path)

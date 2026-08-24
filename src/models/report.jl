@@ -15,9 +15,9 @@ on the whole history for use going forward.
 
 What a fit run produced: the model, the out-of-sample calibration, and the rows behind both.
 """
-struct FitReport
+struct FitReport{M <: BayesianReturnModel}
     symbol::String
-    model::BayesianReturnModel
+    model::M
     calibration::CalibrationReport
     n_examples::Int
     n_scored::Int

@@ -35,6 +35,87 @@ Base.showerror(io::IO, error::HorizonMismatchError) =
     print(io, "HorizonMismatchError: ", error.message)
 
 """
+    ResponseScalePolicy
+
+What units the response is measured in at a point in time.
+
+A regression assumes its noise scale is constant. On returns that is false in a way that
+matters: the same coefficients describe a market whose bars are five times wider in a crisis,
+and a model fitted across both is fitted to neither. Dividing the response by a
+point-in-time scale before fitting, and multiplying the predictive back afterwards, lets one
+set of coefficients describe both regimes.
+
+A policy rather than a flag, so the arithmetic that divides and multiplies is written once and
+the choice of scale is a type. The model is parameterised on it, which is what lets the plain
+model and a scaled one be different types with different versions rather than one type with a
+field nobody can see in a log.
+"""
+abstract type ResponseScalePolicy end
+
+"""
+    ConstantScale()
+
+Leave the response alone, and let the regression estimate one noise scale.
+
+The default, and the honest choice when there is no volatility estimate to hand: a constant
+that is wrong in both regimes is at least visible in the residual scale, whereas a bad
+point-in-time scale is not.
+"""
+struct ConstantScale <: ResponseScalePolicy end
+
+"""
+    VolatilityScale(column; floor = 1.0e-4, annualised = true)
+
+Measure the response in units of the volatility this bar is expected to have.
+
+`column` names a point-in-time feature, never a volatility model handed in at prediction time.
+That is structural rather than stylistic: a feature is built from bars that have closed, so a
+scaled model cannot reach forward even by accident.
+
+`floor` is not a fudge. A volatility feature is exactly zero on a flat window, and a scale of
+zero is not a scale: it would divide a real return by nothing when fitting and collapse the
+predictive to a point when predicting. The floor is what a flat window is worth, and it is
+recorded in the model's parameters so a reader can see which one was used.
+"""
+struct VolatilityScale <: ResponseScalePolicy
+    column::Symbol
+    floor::Float64
+    annualised::Bool
+
+    function VolatilityScale(
+            column::Symbol; floor::Real = 1.0e-4, annualised::Bool = true,
+        )
+        floor > 0 || throw(ArgumentError(string("floor must be positive, got ", floor)))
+        return new(column, Float64(floor), annualised)
+    end
+end
+
+"""
+    policy_columns(policy)
+
+Feature columns the policy reads, beyond the model's own.
+"""
+policy_columns(::ConstantScale) = Symbol[]
+policy_columns(policy::VolatilityScale) = Symbol[policy.column]
+
+"""
+    policy_parameters(policy)
+
+The policy, in a form that hashes stably and reads in a log.
+
+Part of `parameters`, so two models with identical regression state but different scaling do
+not share a parameter hash. They do not make the same predictions and must not claim the same
+identity.
+"""
+policy_parameters(::ConstantScale) = Dict{String, Any}("kind" => "constant")
+policy_parameters(policy::VolatilityScale) = Dict{String, Any}(
+    "kind" => "volatility",
+    "column" => string(policy.column),
+    "floor" => policy.floor,
+    "annualised" => policy.annualised,
+)
+
+"""
     BayesianReturnModel
 
 Forward log return as a Student-t posterior predictive.
@@ -43,11 +124,12 @@ The intercept is fitted rather than assumed zero, and it is not standardised. On
 model it absorbs the unconditional drift, so leaving it out would force the features to
 explain a level they have nothing to do with.
 """
-mutable struct BayesianReturnModel <: ProbabilisticModel
+mutable struct BayesianReturnModel{P <: ResponseScalePolicy} <: ProbabilisticModel
     feature_names::Vector{Symbol}
     horizon_bars::Int
     regression::BayesianLinearModel
     scaler::Union{FeatureScaler, Nothing}
+    policy::P
     state::FitState
 
     function BayesianReturnModel(
@@ -58,7 +140,8 @@ mutable struct BayesianReturnModel <: ProbabilisticModel
             prior_shape::Real = 2.0,
             forgetting::Real = 1.0,
             prior::Union{NormalInverseGammaPrior, Nothing} = nothing,
-        )
+            policy::P = ConstantScale(),
+        ) where {P <: ResponseScalePolicy}
         isempty(feature_names) &&
             throw(ArgumentError("a return model needs at least one feature"))
         tally = Dict{Symbol, Int}()
@@ -91,16 +174,21 @@ mutable struct BayesianReturnModel <: ProbabilisticModel
                 coefficient_scale = coefficient_scale, shape = prior_shape,
             ) : prior
 
-        return new(
+        return new{P}(
             convert(Vector{Symbol}, feature_names), Int(horizon_bars),
-            BayesianLinearModel(resolved; forgetting = forgetting), nothing, FitState(),
+            BayesianLinearModel(resolved; forgetting = forgetting), nothing, policy,
+            FitState(),
         )
     end
 end
 
 fit_state(model::BayesianReturnModel) = model.state
 model_name(::BayesianReturnModel) = MOMENTUM
-model_semver(::BayesianReturnModel) = v"0.1.0"
+# The version is the mathematics, not the fitted values, so a scaled model is a different
+# version of the model rather than a different fit of it. Left at 0.1.0 for the plain one so
+# every bundle already on disk still verifies.
+model_semver(::BayesianReturnModel{ConstantScale}) = v"0.1.0"
+model_semver(::BayesianReturnModel{VolatilityScale}) = v"0.2.0"
 
 """
     design_columns(model)
@@ -114,11 +202,22 @@ design_columns(model::BayesianReturnModel) = vcat(INTERCEPT, model.feature_names
 
 Units the response is measured in at this point in time.
 
-One here: the plain model assumes the noise scale is constant and lets the regression estimate
-it. A model that knows better defines its own method, and everything else — the conjugate
-update, the version hash, the predictive — follows unchanged.
+Delegated to the model's policy, so the divide-then-multiply arithmetic around it is written
+once. Under [`ConstantScale`](@ref) it is one and every path below reduces to the plain model.
 """
-response_scale(::BayesianReturnModel, ::FeatureVector) = 1.0
+response_scale(model::BayesianReturnModel, features::FeatureVector) =
+    response_scale(model.policy, features)
+
+response_scale(::ConstantScale, ::FeatureVector) = 1.0
+
+function response_scale(policy::VolatilityScale, features::FeatureVector)
+    value = require(features, policy.column)
+    isfinite(value) || throw(
+        ArgumentError(string(policy.column, " is ", value, ", which is not a scale")),
+    )
+    scale = policy.annualised ? deannualise(value) : value
+    return max(scale, policy.floor)
+end
 
 """
     fit!(model, observations)
@@ -180,6 +279,7 @@ Fold one realised outcome into the posterior. Rank-one, no refit.
 function update!(model::BayesianReturnModel, observation::TrainingExample)
     require_fitted(model)
     check_horizons(model, [observation])
+    require_later(model, observation.features.as_of)
     raw = design_row(observation.features, model.feature_names)
     update!(
         model.regression,
@@ -189,6 +289,28 @@ function update!(model::BayesianReturnModel, observation::TrainingExample)
     model.state.n_observations += 1
     model.state.train_end = observation.features.as_of
     return model
+end
+
+"""
+    require_later(model, as_of)
+
+Refuse a bar the model has already moved past.
+
+Absorbing one twice counts it twice, and absorbing an older one silently rewinds the training
+window the model reports having been fitted over. Neither raises anything on its own, and both
+leave a posterior that no sequence of bars could have produced.
+"""
+function require_later(model::ProbabilisticModel, as_of::DateTime)
+    train_end = fit_state(model).train_end
+    train_end === nothing && return nothing
+    as_of > train_end || throw(
+        ArgumentError(
+            string(
+                "model has already absorbed up to ", train_end, ", given a bar at ", as_of,
+            ),
+        ),
+    )
+    return nothing
 end
 
 """
@@ -248,7 +370,9 @@ A warming-up vector is a normal state early in a backtest, so callers ask rather
 an exception in the loop.
 """
 can_predict(model::BayesianReturnModel, features::FeatureVector) =
-    is_fitted(model) && all(name -> haskey(features, name), model.feature_names)
+    is_fitted(model) &&
+    all(name -> haskey(features, name), model.feature_names) &&
+    all(name -> haskey(features, name), policy_columns(model.policy))
 
 """
     uncertainty(model)
@@ -275,6 +399,7 @@ function parameters(model::BayesianReturnModel)
         "horizon_bars" => model.horizon_bars,
         "regression" => parameters(model.regression),
         "scaler" => scaler === nothing ? nothing : parameters(scaler),
+        "policy" => policy_parameters(model.policy),
     )
 end
 
