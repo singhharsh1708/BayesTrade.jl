@@ -125,12 +125,48 @@ end
         @test model_semver(plain) != model_semver(scaled)
         @test identifier(model_version(plain)) != identifier(model_version(scaled))
         @test parameters(scaled)["policy"]["kind"] == "volatility"
-        @test parameters(plain)["policy"]["kind"] == "constant"
 
+        # Every field of the policy changes what the model predicts, so every field has to
+        # reach the hash. A policy recorded as a bare kind would pass the test above and
+        # fail all three of these.
         floored = sr_fitted(
             sr_model(policy = VolatilityScale(SR_COLUMN; floor = 0.5)), examples,
         )
-        @test params_hash(floored) != params_hash(scaled)
+        raw = sr_fitted(
+            sr_model(policy = VolatilityScale(SR_COLUMN; annualised = false)), examples,
+        )
+        elsewhere = sr_fitted(
+            sr_model(policy = VolatilityScale(:log_return_1)), examples,
+        )
+        for other in (floored, raw, elsewhere)
+            @test params_hash(other) != params_hash(scaled)
+        end
+        @test length(unique(params_hash.([scaled, floored, raw, elsewhere]))) == 4
+
+        # An unscaled model records no policy at all rather than recording that it has
+        # none. Adding a key to every plain model would change every plain model's
+        # identity, and every bundle written before policies existed would stop verifying
+        # against the model it describes.
+        @test !haskey(parameters(plain), "policy")
+        @test params_hash(plain) == stable_hash(
+            filter(entry -> first(entry) != "policy", parameters(plain)),
+        )
+    end
+
+    @testset "the scaling column is honoured, not assumed" begin
+        # Every other test uses the same column for the features and the scale, so nothing
+        # would notice a policy that read a hardcoded name.
+        examples = sr_examples()
+        template = last(examples).features
+        by_volatility = VolatilityScale(SR_COLUMN; annualised = false)
+        by_return = VolatilityScale(:log_return_1; annualised = false, floor = 1.0e-9)
+
+        @test response_scale(by_volatility, template) ≈ require(template, SR_COLUMN)
+        @test response_scale(by_return, template) ≈
+            max(require(template, :log_return_1), 1.0e-9)
+        @test response_scale(by_volatility, template) !=
+            response_scale(by_return, template)
+        @test policy_columns(by_return) == [:log_return_1]
     end
 
     @testset "scaling earns its place on a market that changes width" begin
@@ -184,6 +220,96 @@ end
         end
     end
 
+    @testset "every policy field survives, not just the kind" begin
+        # A loader that rebuilt the policy from its kind alone and defaulted the rest would
+        # pass a round trip that only ever uses defaults.
+        mktempdir() do dir
+            examples = sr_examples(; n_bars = 1_200)
+            original = sr_fitted(
+                sr_model(
+                    policy = VolatilityScale(
+                        :log_return_1; floor = 0.037, annualised = false,
+                    ),
+                ),
+                examples,
+            )
+            path = joinpath(dir, "odd.json")
+            save_model(original, path)
+            restored = load_model(path)
+
+            @test restored.policy.column === :log_return_1
+            @test restored.policy.floor === 0.037
+            @test restored.policy.annualised === false
+            @test params_hash(restored) == params_hash(original)
+
+            template = last(examples).features
+            @test response_scale(restored, template) ==
+                response_scale(original, template)
+        end
+    end
+
+    @testset "the prior follows the response onto its new scale" begin
+        # A scaled response is a return divided by its own expected volatility, so it sits
+        # near one rather than near two per cent. Carrying the unscaled default across
+        # would put the prior about sixty times too tight against a measured residual
+        # scale of roughly 1.2.
+        @test default_residual_scale(ConstantScale()) == 0.02
+        @test default_residual_scale(VolatilityScale(SR_COLUMN)) == 1.0
+        @test sr_model().regression.prior.rate ≈ 0.02^2
+        @test sr_scaled().regression.prior.rate ≈ 1.0
+        @test BayesianReturnModel(
+            [:log_return_1]; horizon_bars = 1, residual_scale = 0.5,
+        ).regression.prior.rate ≈ 0.25
+
+        examples = sr_examples()
+        scaled = sr_fitted(sr_scaled(), examples)
+        plain = sr_fitted(sr_model(), examples)
+        @test residual_scale(scaled.regression) > 0.5
+        @test residual_scale(plain.regression) < 0.2
+    end
+
+    @testset "rows out of order are refused by the return model too" begin
+        # Row i of n carries weight forgetting^(n - i), so order is not presentation.
+        examples = sr_examples()[1:200]
+        swapped = copy(examples)
+        swapped[100], swapped[101] = swapped[101], swapped[100]
+        @test_throws ArgumentError fit!(sr_model(), reverse(examples))
+        @test_throws ArgumentError fit!(sr_model(), swapped)
+        @test_throws ArgumentError fit!(
+            BayesianReturnModel([:log_return_1]; horizon_bars = 1, forgetting = 0.99),
+            swapped,
+        )
+    end
+
+    @testset "a state that is not a state is refused as a file problem" begin
+        # Left unchecked these surface much later as a domain error from a square root,
+        # naming neither the field nor the file it came from.
+        mktempdir() do dir
+            path = joinpath(dir, "model.json")
+            save_model(sr_fitted(sr_model(), sr_examples(; n_bars = 1_200)), path)
+            original = read(path, String)
+            for damage in (
+                    bundle -> (bundle["state"]["weight"] = -1.0),
+                    bundle -> (bundle["state"]["yy"] = -1.0),
+                    bundle -> (bundle["state"]["n_seen"] = -3),
+                )
+                bundle = JSON3.read(original, Dict{String, Any})
+                damage(bundle)
+                write(path, JSON3.write(bundle))
+                @test_throws ModelFileError load_model(path)
+            end
+        end
+    end
+
+    @testset "the default floor is what it says it is" begin
+        template = last(sr_examples()).features
+        @test VolatilityScale(SR_COLUMN).floor === 1.0e-4
+        @test VolatilityScale(SR_COLUMN).annualised === true
+        @test response_scale(
+            VolatilityScale(SR_COLUMN), sr_vector(template; volatility_20 = 0.0),
+        ) === 1.0e-4
+    end
+
     @testset "a file written before policies existed is an unscaled model" begin
         # Absence means constant, not an error, which is what keeps every bundle already on
         # disk loading unchanged.
@@ -197,6 +323,18 @@ end
             restored = load_model(path)
             @test restored isa BayesianReturnModel{ConstantScale}
             @test model_semver(restored) == v"0.1.0"
+        end
+    end
+
+    @testset "an unscaled model writes the bundle it always wrote" begin
+        # The claim behind the one above, and the one that actually protects files already
+        # on disk: their stored hash was computed without a policy, so a plain model must
+        # still record none. Deleting a block the writer never wrote is not a test of that.
+        mktempdir() do dir
+            path = joinpath(dir, "plain.json")
+            save_model(sr_fitted(sr_model(), sr_examples(; n_bars = 1_200)), path)
+            config = JSON3.read(read(path, String))["config"]
+            @test !haskey(config, "policy")
         end
     end
 end
@@ -226,9 +364,13 @@ end
                 sr_fitted(sr_model(), examples[1:500]),
                 fit!(BayesianVolatilityModel(; horizon_bars = 1), examples[1:500]),
             )
+            before = params_hash(model)
             @test_throws ArgumentError update!(model, examples[500])
             @test_throws ArgumentError update!(model, examples[10])
             @test n_observations(model) == 500
+            # The refusal has to happen before the posterior moves, not after it.
+            @test params_hash(model) == before
+            @test fit_state(model).train_end == examples[500].features.as_of
             update!(model, examples[501])
             @test n_observations(model) == 501
         end

@@ -469,11 +469,25 @@ function load_state!(model::BayesianLinearModel, saved::AbstractDict)
     length(xy) == size ||
         throw(ArgumentError(string("state describes ", length(xy), " linear terms")))
 
+    yy = Float64(saved["yy"])
+    weight = Float64(saved["weight"])
+    n_seen = Int(saved["n_seen"])
+    # A sum of squares and a discounted count cannot be negative. Left unchecked these
+    # surface much later as a domain error from a square root, naming neither the field nor
+    # the file it came from.
+    (isfinite(yy) && yy >= 0) ||
+        throw(ArgumentError(string("state yy must be finite and non-negative, got ", yy)))
+    (isfinite(weight) && weight >= 0) || throw(
+        ArgumentError(string("state weight must be finite and non-negative, got ", weight)),
+    )
+    n_seen >= 0 ||
+        throw(ArgumentError(string("state n_seen must be non-negative, got ", n_seen)))
+
     model.xx = xx
     model.xy = xy
-    model.yy = Float64(saved["yy"])
-    model.weight = Float64(saved["weight"])
-    model.n_seen = Int(saved["n_seen"])
+    model.yy = yy
+    model.weight = weight
+    model.n_seen = n_seen
     return model
 end
 

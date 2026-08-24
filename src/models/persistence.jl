@@ -60,7 +60,10 @@ function save_model(model::BayesianReturnModel, path::AbstractString)
         "scaler" => parameters(scaler),
         "state" => state(model.regression),
     )
-    bundle["config"]["policy"] = policy_parameters(model.policy)
+    # Written only when there is a policy to write, so an unscaled model produces exactly
+    # the bundle it produced before policies existed.
+    policy = policy_parameters(model.policy)
+    policy === nothing || (bundle["config"]["policy"] = policy)
 
     return write_bundle(bundle, path)
 end

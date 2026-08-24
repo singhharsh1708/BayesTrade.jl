@@ -99,15 +99,34 @@ policy_columns(::ConstantScale) = Symbol[]
 policy_columns(policy::VolatilityScale) = Symbol[policy.column]
 
 """
+    default_residual_scale(policy)
+
+Where the noise is expected to sit, in whatever units the policy leaves the response in.
+
+A scaled response is a return divided by its own expected volatility, so it sits near one
+rather than near a couple of per cent. Carrying the unscaled default across would put the
+prior about sixty times too tight against a measured residual scale of 1.23, which a long
+window overwhelms and a short one does not.
+"""
+default_residual_scale(::ConstantScale) = 0.02
+default_residual_scale(::VolatilityScale) = 1.0
+
+"""
     policy_parameters(policy)
 
-The policy, in a form that hashes stably and reads in a log.
+The policy, in a form that hashes stably and reads in a log, or `nothing` when there is
+nothing to record.
 
 Part of `parameters`, so two models with identical regression state but different scaling do
 not share a parameter hash. They do not make the same predictions and must not claim the same
 identity.
+
+An unscaled model records nothing at all, rather than recording that it is unscaled. The
+difference matters: `parameters` feeds the hash a bundle is verified against, so adding a key
+to every plain model would change every plain model's identity and every file written before
+policies existed would stop loading against the model it describes.
 """
-policy_parameters(::ConstantScale) = Dict{String, Any}("kind" => "constant")
+policy_parameters(::ConstantScale) = nothing
 policy_parameters(policy::VolatilityScale) = Dict{String, Any}(
     "kind" => "volatility",
     "column" => string(policy.column),
@@ -135,7 +154,7 @@ mutable struct BayesianReturnModel{P <: ResponseScalePolicy} <: ProbabilisticMod
     function BayesianReturnModel(
             feature_names::AbstractVector{Symbol};
             horizon_bars::Integer,
-            residual_scale::Real = 0.02,
+            residual_scale::Union{Real, Nothing} = nothing,
             coefficient_scale::Real = 0.5,
             prior_shape::Real = 2.0,
             forgetting::Real = 1.0,
@@ -168,9 +187,10 @@ mutable struct BayesianReturnModel{P <: ResponseScalePolicy} <: ProbabilisticMod
                 ),
             )
         end
+        noise = residual_scale === nothing ? default_residual_scale(policy) : residual_scale
         resolved = prior === nothing ?
             weakly_informative_prior(
-                width; residual_scale = residual_scale,
+                width; residual_scale = noise,
                 coefficient_scale = coefficient_scale, shape = prior_shape,
             ) : prior
 
@@ -238,6 +258,12 @@ function fit!(model::BayesianReturnModel, observations::AbstractVector{TrainingE
     )
     check_horizons(model, observations)
 
+    stamps = DateTime[example.features.as_of for example in observations]
+    # Row i of n carries weight forgetting^(n - i), so the order is not presentation: rows
+    # out of order are silently weighted as though they arrived when they did not.
+    issorted(stamps) ||
+        throw(ArgumentError("training rows must be in chronological order"))
+
     width = length(model.feature_names)
     raw = Matrix{Float64}(undef, length(observations), width)
     responses = Vector{Float64}(undef, length(observations))
@@ -261,7 +287,6 @@ function fit!(model::BayesianReturnModel, observations::AbstractVector{TrainingE
     model.scaler = scaler
     fit!(model.regression, design, responses)
 
-    stamps = DateTime[example.features.as_of for example in observations]
     return mark_fitted!(
         model;
         n_observations = length(observations),
@@ -394,13 +419,15 @@ function parameters(model::BayesianReturnModel)
     # inside an expression does not refine the field's type for the call that follows, so
     # the branch that cannot run is still analysed and still has to typecheck.
     scaler = model.scaler
-    return Dict{String, Any}(
+    recorded = Dict{String, Any}(
         "columns" => String[string(name) for name in design_columns(model)],
         "horizon_bars" => model.horizon_bars,
         "regression" => parameters(model.regression),
         "scaler" => scaler === nothing ? nothing : parameters(scaler),
-        "policy" => policy_parameters(model.policy),
     )
+    policy = policy_parameters(model.policy)
+    policy === nothing || (recorded["policy"] = policy)
+    return recorded
 end
 
 """
@@ -411,6 +438,10 @@ Per-column posterior summary, for reading a fitted model.
 The standardised coefficient is the comparable one: it says how much the predicted return
 moves per typical move in that feature. The raw one is what a reader checks against a
 definition.
+
+Under a scaling policy the raw coefficient is in units of the scaled response, not of the
+return. There is no single number in return units to report, because the scale moves from bar
+to bar, which is the entire point of scaling.
 """
 function coefficient_report(model::BayesianReturnModel)
     require_fitted(model)

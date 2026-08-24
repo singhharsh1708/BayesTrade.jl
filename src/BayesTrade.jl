@@ -154,7 +154,7 @@ export FeatureScaler, fit_scaler, transform, transform_row, unscale_coefficients
 export BayesianReturnModel, HorizonMismatchError, design_columns, response_scale
 export can_predict, coefficient_report, restore!
 export ResponseScalePolicy, ConstantScale, VolatilityScale
-export policy_columns, policy_parameters
+export policy_columns, policy_parameters, default_residual_scale
 
 export VarianceSource, SquaredReturnSource, BayesianVolatilityModel
 export source_columns, source_name, observe, absorb!, feature_names, predictive_df
