@@ -4,12 +4,12 @@ rk_limits(; kwargs...) = RiskLimits(; kwargs...)
 
 function rk_prediction(;
         mu = 0.03, sd = 0.02, epistemic = nothing, symbol = "RELIANCE",
-        as_of = DateTime(2026, 1, 2), horizon = 5,
+        as_of = DateTime(2026, 1, 2), horizon = 5, df = 8.0,
     )
     share = epistemic === nothing ? 0.2 * sd^2 : epistemic
     return FusedPrediction(
         symbol = symbol, as_of = as_of, horizon_bars = horizon,
-        distribution = OpinionPool((student_t(mu, sd, 8.0),), [1.0]),
+        distribution = OpinionPool((student_t(mu, sd, df),), [1.0]),
         epistemic_variance = share,
         weights = LabelledCategorical([MOMENTUM], [1.0]),
         sources = [
@@ -177,19 +177,83 @@ end
 
     @testset "a wider posterior sizes smaller, with no rule saying so" begin
         # The reason the models emit distributions rather than point forecasts.
-        narrow = decide(rk_prediction(mu = 0.05, sd = 0.01), limits)
-        wider = decide(rk_prediction(mu = 0.05, sd = 0.03), limits)
+        # Held at the same P(up) of 0.614 so only the width differs, and scored under a
+        # loosened tail gate so that what is measured is the sizing rule rather than the
+        # ceiling: at these widths the budget binds and the position cap does not.
+        sizing = rk_limits(max_probability_large_loss = 0.5)
+        narrow = decide(rk_prediction(mu = 0.03, sd = 0.1), sizing)
+        wider = decide(rk_prediction(mu = 0.045, sd = 0.15), sizing)
+        @test narrow.target_weight < sizing.max_position_weight
+        @test probability_positive(rk_prediction(mu = 0.03, sd = 0.1)) ≈
+            probability_positive(rk_prediction(mu = 0.045, sd = 0.15)) atol = 1.0e-9
         @test narrow.action === BUY
         @test wider.action === BUY
         @test wider.target_weight < narrow.target_weight
 
         # And never above the position ceiling however sharp it looks.
-        @test decide(rk_prediction(mu = 0.05, sd = 0.001), limits).target_weight <=
+        @test decide(rk_prediction(mu = 0.05, sd = 0.001), limits).target_weight ==
             limits.max_position_weight
         # The budget is what is lost if the tail move happens.
-        prediction = rk_prediction(mu = 0.05, sd = 0.03)
-        weight = size_by_risk(prediction, limits)
-        @test weight * downside(prediction, 0.05) ≈ limits.risk_budget_per_trade rtol = 1.0e-9
+        prediction = rk_prediction(mu = 0.03, sd = 0.1)
+        weight = size_by_risk(prediction, limits, BUY)
+        @test weight < limits.max_position_weight
+        @test weight * downside(prediction, 0.05, BUY) ≈
+            limits.risk_budget_per_trade rtol = 1.0e-9
+    end
+
+    @testset "the adverse tail is the one the trade can lose on" begin
+        # Taking the larger magnitude of the two tails reads as conservative and is not: on
+        # a strongly bullish posterior the larger magnitude is the upside, so a better edge
+        # would report a bigger risk and size smaller. Measured before this was fixed, a
+        # posterior centred at six per cent reported a downside of 9.7 per cent, which was
+        # its ninety-fifth percentile gain.
+        bullish = rk_prediction(mu = 0.03, sd = 0.02)
+        @test downside(bullish, 0.05, BUY) ≈ -quantile(bullish.distribution, 0.05)
+        @test downside(bullish, 0.05, BUY) < downside(rk_prediction(mu = 0.01, sd = 0.02), 0.05, BUY)
+
+        # A short loses on a move up, so its adverse tail is the other one, and the two are
+        # mirror images.
+        bearish = rk_prediction(mu = -0.03, sd = 0.02)
+        @test downside(bearish, 0.05, SELL) ≈ quantile(bearish.distribution, 0.95)
+        @test downside(bearish, 0.05, SELL) ≈ downside(bullish, 0.05, BUY)
+
+        # A tail already on the profitable side loses nothing at that probability, and the
+        # floor keeps the division finite rather than claiming certainty.
+        certain = rk_prediction(mu = 0.1, sd = 0.01)
+        @test quantile(certain.distribution, 0.05) > 0
+        @test downside(certain, 0.05, BUY) == 1.0e-4
+        @test isfinite(size_by_risk(certain, limits, BUY))
+    end
+
+    @testset "a gate that cannot read its input fails closed" begin
+        # An unmeasurable epistemic variance cannot be built at all, which is the stronger
+        # protection: the guard downstream exists because NaN > x is false, and a gate that
+        # cannot read its input must never read it as safe.
+        @test_throws ArgumentError FusedPrediction(
+            symbol = "RELIANCE", as_of = DateTime(2026, 1, 2), horizon_bars = 5,
+            distribution = OpinionPool((student_t(0.03, 0.02, 8.0),), [1.0]),
+            epistemic_variance = NaN,
+            weights = LabelledCategorical([MOMENTUM], [1.0]),
+            sources = [
+                ModelVersion(name = MOMENTUM, version = v"0.1.0", params_hash = "a"^32),
+            ],
+        )
+
+        # A Student-t below two degrees of freedom has infinite variance. The epistemic
+        # share is then a finite number over an infinite one, which is zero, so a posterior
+        # with no idea at all would read as the most confident input the gate has seen.
+        formless = rk_prediction(mu = 0.03, sd = 0.02, df = 1.5, epistemic = 1.0e-4)
+        @test !isfinite(var(formless.distribution))
+        @test epistemic_share(formless) == 0.0
+        @test decide(formless, limits).action === NO_TRADE
+        @test decide(formless, limits).reason === UNCERTAINTY_TOO_HIGH
+    end
+
+    @testset "a posterior from the future is not the freshest one" begin
+        # A one-sided comparison would treat a clock error as the newest evidence available.
+        ahead = rk_prediction(as_of = DateTime(2026, 6, 1))
+        @test decide(ahead, limits; now = DateTime(2026, 1, 2), max_age = Day(3)).reason ===
+            STALE_POSTERIOR
     end
 
     @testset "the gates come from the limits, not from the code" begin
@@ -206,6 +270,10 @@ end
             max_probability_large_loss = 0.9, min_confidence = 0.0,
             min_probability_positive = 0.52,
         )
+        # A gate at exactly a half makes every prediction a trade, so it is refused
+        # outright rather than left as a configuration a typo can reach.
+        @test_throws ArgumentError rk_limits(min_probability_positive = 0.5)
+        @test_throws ArgumentError rk_limits(min_probability_positive = 0.3)
         @test decide(rk_prediction(mu = 0.03, sd = 0.2), permissive).action === BUY
     end
 
@@ -296,9 +364,14 @@ end
         @test ruling.approved_weight ≈ limits.max_position_weight - 0.03
         @test isempty(failures(ruling))
 
-        # Already at the ceiling means nothing left to add.
+        # Already at the ceiling means nothing left to add, and the ceiling that stopped it
+        # is named. A refusal whose every check says PASS records nothing as its cause, in
+        # the one component whose whole purpose is being auditable afterwards.
         full = Dict("RELIANCE" => rk_position("RELIANCE", limits.max_position_weight))
-        @test !approved(review(intent, rk_portfolio(positions = full), limits))
+        blocked = review(intent, rk_portfolio(positions = full), limits; sector = "energy")
+        @test !approved(blocked)
+        @test :position_weight in [check.name for check in failures(blocked)]
+        @test !isempty(failures(blocked))
     end
 
     @testset "the book and the sector are ceilings too" begin
@@ -318,9 +391,11 @@ end
             string("NAME", index) => rk_position(string("NAME", index), 0.05; sector = "energy")
                 for index in 1:5
         )
-        @test !approved(
-            review(intent, rk_portfolio(positions = at_ceiling), limits; sector = "energy"),
+        blocked_sector = review(
+            intent, rk_portfolio(positions = at_ceiling), limits; sector = "energy",
         )
+        @test !approved(blocked_sector)
+        @test :sector_exposure in [check.name for check in failures(blocked_sector)]
         # And a different sector is unaffected by it.
         @test approved(
             review(intent, rk_portfolio(positions = at_ceiling), limits; sector = "pharma"),
@@ -364,10 +439,26 @@ end
         skipped = [check.name for check in ruling.checks if check.status === SKIPPED]
         @test :volatility in skipped
         @test :liquidity in skipped
+        @test :sector_exposure in skipped
+
+        # The sector default was the dangerous one: a placeholder sector holds nothing, so
+        # its exposure is zero and a real ceiling reads as satisfied.
+        at_ceiling = Dict(
+            string("NAME", index) => rk_position(string("NAME", index), 0.05; sector = "energy")
+                for index in 1:5
+        )
+        crowded = rk_portfolio(positions = at_ceiling)
+        @test !approved(review(intent, crowded, limits; sector = "energy"))
+        @test approved(review(intent, crowded, limits))
+        @test :sector_exposure in
+            [
+            check.name for check in review(intent, crowded, limits).checks
+                if check.status === SKIPPED
+        ]
 
         supplied = review(
             intent, rk_portfolio(), limits;
-            annualised_volatility = 0.2, daily_turnover = 1.0e9,
+            sector = "energy", annualised_volatility = 0.2, daily_turnover = 1.0e9,
         )
         @test all(check -> check.status !== SKIPPED, supplied.checks)
         @test approved(supplied)
@@ -379,6 +470,26 @@ end
         illiquid = review(intent, rk_portfolio(), limits; daily_turnover = 1.0)
         @test !approved(illiquid)
         @test :liquidity in [check.name for check in failures(illiquid)]
+    end
+
+    @testset "a sell is ruled on the same way a buy is" begin
+        bearish = decide(rk_prediction(mu = -0.03, sd = 0.02), limits)
+        @test bearish.action === SELL
+        ruling = review(bearish, rk_portfolio(), limits; sector = "energy")
+        @test approved(ruling)
+        @test ruling.action === SELL
+        @test ruling.approved_weight ≈ bearish.target_weight
+        # A short consumes exposure exactly as a long does.
+        short_book = Dict(
+            "OTHER" => Position(
+                symbol = "OTHER", quantity = -500.0, average_price = 1_000.0,
+                last_price = 1_000.0, opened_at = DateTime(2026, 1, 1), sector = "energy",
+            ),
+        )
+        crowded = review(
+            bearish, rk_portfolio(positions = short_book), limits; sector = "energy",
+        )
+        @test crowded.approved_weight < bearish.target_weight
     end
 
     @testset "there is nothing to rule on when the decision declined" begin

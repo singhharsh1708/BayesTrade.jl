@@ -136,13 +136,18 @@ Account-level limits are checked first and symbol-level ones after, because an a
 breached its drawdown must stop trading everything rather than stop trading one name.
 
 A trade that would breach a position or sector ceiling is **reduced to the headroom** rather
-than refused outright, since a smaller trade is genuinely within the limit. Account-level
-breaches and the kill switch refuse instead: there is no smaller version of a halted account.
+than refused outright, since a smaller trade is genuinely within the limit. A ceiling with no
+headroom left fails instead, so a refusal always names something. Account-level breaches and
+the kill switch refuse outright: there is no smaller version of a halted account.
+
+`sector` is not defaulted. A missing sector is `SKIPPED`, never silently passed, because a
+default value would compare the trade against the exposure of a sector nothing is held in and
+report a limit as satisfied that was never evaluated.
 """
 function review(
         intent::TradeIntent, portfolio::Portfolio, limits::RiskLimits;
         mode::TradingMode = PAPER,
-        sector::AbstractString = "unknown",
+        sector::Union{AbstractString, Nothing} = nothing,
         halted::Bool = false,
         annualised_volatility::Union{Real, Nothing} = nothing,
         daily_turnover::Union{Real, Nothing} = nothing,
@@ -220,42 +225,51 @@ function review(
     # a breached drawdown, so there is nothing to reduce to.
     any(failed, checks) && return ruling(0.0)
 
-    # Symbol and book ceilings reduce rather than refuse: the headroom under a limit is a
-    # trade that genuinely satisfies it.
+    # Ceilings reduce rather than refuse, because the headroom under a limit is a trade that
+    # genuinely satisfies it. No headroom at all is a different thing and is recorded as a
+    # failure: a refusal whose every check says PASS names nothing as its cause, and this is
+    # the one component whose whole purpose is being auditable afterwards.
     allowed = requested
-    position_headroom = max(0.0, limits.max_position_weight - existing)
-    push!(
-        checks,
-        gate(
-            :position_weight, existing + min(allowed, position_headroom),
-            limits.max_position_weight, "position weight",
-        ),
-    )
-    allowed = min(allowed, position_headroom)
 
-    sector_headroom = max(0.0, limits.max_sector_exposure - sector_exposure(portfolio, sector))
-    push!(
-        checks,
-        gate(
-            :sector_exposure,
-            sector_exposure(portfolio, sector) + min(allowed, sector_headroom),
+    function ceiling!(name::Symbol, used::Float64, cap::Float64, description::AbstractString)
+        headroom = max(0.0, cap - used)
+        if headroom <= 0
+            push!(
+                checks,
+                fail(
+                    name,
+                    string(description, " ", round(used; digits = 4), " leaves no headroom under ", cap),
+                    used, cap,
+                ),
+            )
+        else
+            push!(
+                checks,
+                pass(
+                    name, string(description, " within limit"),
+                    used + min(allowed, headroom), cap,
+                ),
+            )
+        end
+        allowed = min(allowed, headroom)
+        return nothing
+    end
+
+    ceiling!(:position_weight, existing, limits.max_position_weight, "position weight")
+    if sector === nothing
+        push!(checks, skip(:sector_exposure, "no sector supplied"))
+    else
+        ceiling!(
+            :sector_exposure, sector_exposure(portfolio, sector),
             limits.max_sector_exposure, "sector exposure",
-        ),
+        )
+    end
+    ceiling!(
+        :portfolio_exposure, portfolio_exposure(portfolio),
+        limits.max_portfolio_exposure, "portfolio exposure",
     )
-    allowed = min(allowed, sector_headroom)
 
-    book_headroom = max(0.0, limits.max_portfolio_exposure - portfolio_exposure(portfolio))
-    push!(
-        checks,
-        gate(
-            :portfolio_exposure,
-            portfolio_exposure(portfolio) + min(allowed, book_headroom),
-            limits.max_portfolio_exposure, "portfolio exposure",
-        ),
-    )
-    allowed = min(allowed, book_headroom)
-
-    return ruling(max(0.0, allowed))
+    return ruling(any(failed, checks) ? 0.0 : max(0.0, allowed))
 end
 
 """

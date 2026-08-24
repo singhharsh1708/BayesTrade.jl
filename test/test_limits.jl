@@ -24,7 +24,10 @@
     @testset "a gate at or below a coin flip is not a gate" begin
         @test_throws ArgumentError RiskLimits(min_probability_positive = 0.45)
         @test_throws ArgumentError RiskLimits(min_probability_positive = 1.0)
-        @test RiskLimits(min_probability_positive = 0.5) isa RiskLimits
+        # Exactly a half is the coin flip itself: every prediction becomes a buy or a sell
+        # and the no-trade band the engine relies on disappears entirely.
+        @test_throws ArgumentError RiskLimits(min_probability_positive = 0.5)
+        @test RiskLimits(min_probability_positive = 0.5001) isa RiskLimits
     end
 
     @testset "fractions must be fractions" begin

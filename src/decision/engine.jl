@@ -73,17 +73,31 @@ decline(
 )
 
 """
-    downside(prediction, level)
+    downside(prediction, level, action)
 
-The magnitude of the adverse move at a given tail probability, in return units.
+The magnitude of the **adverse** move at a given tail probability, in return units.
 
-Read off the predictive itself rather than assumed from a volatility, so a skewed or
-heavy-tailed posterior sizes smaller without anything special being written for that case.
+Adverse depends on the direction: for a long it is the lower tail, for a short the upper one.
+Taking the larger of the two magnitudes instead, which reads as conservative, is not: on a
+strongly bullish posterior the larger magnitude is the *upside*, so a better edge would report
+a bigger risk and size smaller. Measured before this was fixed, a posterior centred at six per
+cent reported a downside of 9.7 per cent, which was its ninety-fifth percentile gain.
+
+Read off the predictive rather than assumed from a volatility, so a skewed or heavy-tailed
+posterior sizes smaller with nothing written specially for that case.
 """
-function downside(prediction::FusedPrediction, level::Float64)
-    lower = quantile(prediction.distribution, level)
-    upper = quantile(prediction.distribution, 1 - level)
-    return max(abs(lower), abs(upper), 1.0e-6)
+function downside(prediction::FusedPrediction, level::Float64, action::Action)
+    # The sign convention differs by direction and cannot be shared: for a long the loss is
+    # a negative return, for a short it is a positive one.
+    loss = if action === SELL
+        max(quantile(prediction.distribution, 1 - level), 0.0)
+    else
+        max(-quantile(prediction.distribution, level), 0.0)
+    end
+    # A tail on the profitable side of zero means this trade loses nothing at that
+    # probability. The floor keeps the division below finite rather than claiming a
+    # certainty no posterior supports.
+    return max(loss, 1.0e-4)
 end
 
 """
@@ -96,9 +110,10 @@ budget divided by that move. A wider posterior therefore sizes smaller with no s
 for it, which is the whole reason the models emit distributions rather than point forecasts.
 """
 function size_by_risk(
-        prediction::FusedPrediction, limits::RiskLimits; tail::Float64 = 0.05,
+        prediction::FusedPrediction, limits::RiskLimits, action::Action;
+        tail::Float64 = 0.05,
     )
-    adverse = downside(prediction, tail)
+    adverse = downside(prediction, tail, action)
     return min(limits.risk_budget_per_trade / adverse, limits.max_position_weight)
 end
 
@@ -135,13 +150,24 @@ function decide(
         :n_models => Float64(n_models(prediction)),
     )
 
-    if now !== nothing && now - prediction.as_of > max_age
+    if now !== nothing && abs(now - prediction.as_of) > max_age
+        # Symmetric on purpose. A posterior dated in the future is not fresh, it is wrong,
+        # and a one-sided comparison would treat a clock error as the newest evidence
+        # available.
         return decline(prediction, STALE_POSTERIOR; evidence = evidence)
     end
-    if share > limits.max_model_uncertainty
+    # Fails closed, and on the spread as well as on the share. A predictive with infinite
+    # variance reports an epistemic share of zero, because a finite reducible part divided
+    # by an infinite total is nothing, so a posterior that has no idea at all would read as
+    # the most confident input the gate has ever seen.
+    total_variance = var(prediction.distribution)
+    if !isfinite(total_variance) || total_variance <= 0
         return decline(prediction, UNCERTAINTY_TOO_HIGH; evidence = evidence)
     end
-    if confidence < limits.min_confidence
+    if !isfinite(share) || share > limits.max_model_uncertainty
+        return decline(prediction, UNCERTAINTY_TOO_HIGH; evidence = evidence)
+    end
+    if !isfinite(confidence) || confidence < limits.min_confidence
         return decline(prediction, MODEL_DISAGREEMENT; evidence = evidence)
     end
     action = if probability_up >= limits.min_probability_positive
@@ -166,9 +192,9 @@ function decide(
         return decline(prediction, LOSS_PROBABILITY_TOO_HIGH; evidence = evidence)
     end
 
-    weight = size_by_risk(prediction, limits; tail = tail)
+    weight = size_by_risk(prediction, limits, action; tail = tail)
     evidence[:target_weight] = weight
-    evidence[:downside] = downside(prediction, tail)
+    evidence[:downside] = downside(prediction, tail, action)
     return TradeIntent(
         symbol = prediction.symbol, as_of = prediction.as_of,
         horizon_bars = prediction.horizon_bars, action = action,
