@@ -10,7 +10,7 @@ tests pass in CI and the capability is reachable from the CLI or the API.
 | 3 | Leak-free feature generation | done |
 | 4 | Bayesian price/return model | done |
 | 5 | Bayesian volatility model | done |
-| 6 | Market regime model | pending |
+| 6 | Market regime model | done |
 | 7 | Bayesian fusion layer | pending |
 | 8 | Event-driven backtester and walk-forward | pending |
 | 9 | Deterministic risk engine | pending |

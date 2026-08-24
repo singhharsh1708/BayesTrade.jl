@@ -51,6 +51,9 @@ include("inference/online/regime.jl")
 include("models/scaling.jl")
 include("models/return_model.jl")
 include("models/volatility_model.jl")
+# After return_model.jl: require_later and HorizonMismatchError are defined there and are
+# generic over ProbabilisticModel.
+include("models/regime_model.jl")
 include("inference/posterior/calibration.jl")
 include("inference/offline/walk_forward.jl")
 include("models/persistence.jl")
@@ -156,6 +159,8 @@ export regime_transition, regime_shape, estimate_regime_parameters, emission
 export regime_probabilities, regime_belief, regime_confidence, most_likely_regime
 export propagate, observe_return!, fit_filter!, horizon_weights, predict_return
 export variance_decomposition, transition_matrix, n_states
+
+export RegimeSource, BarReturnSource, MarketRegimeModel, MIN_REGIME_ROWS
 
 export FeatureScaler, fit_scaler, transform, transform_row, unscale_coefficients
 export BayesianReturnModel, HorizonMismatchError, design_columns, response_scale
