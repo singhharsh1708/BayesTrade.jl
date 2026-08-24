@@ -40,6 +40,7 @@ using Test
     include("test_replay.jl")
     include("test_risk.jl")
     include("test_broker.jl")
+    include("test_feed.jl")
     include("test_calibration.jl")
     include("test_walk_forward.jl")
     include("test_persistence.jl")
