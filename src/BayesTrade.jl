@@ -65,6 +65,7 @@ include("models/report.jl")
 include("portfolio/state.jl")
 include("decision/engine.jl")
 include("risk/engine.jl")
+include("feed/stream.jl")
 include("execution/broker.jl")
 include("execution/paper.jl")
 include("backtest/replay.jl")
@@ -188,6 +189,11 @@ export Broker, Order, Fill, OrderReceipt, place_order!, cancel_order!, broker_mo
 export is_buy, signed_quantity, cash_flow, was_filled
 export PaperBroker, PaperCosts, fill_price, commission, tradeable_quantity, apply!
 export mark_to_market!, equity, portfolio, order_from_ruling, next_order_id!
+
+export TickSource, ReplayTickSource, next_tick!, source_symbols, exhausted
+export FeedHealth, is_stale, silence, accept!, mark_stale!
+export BarAggregator, bucket_of, has_open_bar, push_tick!, build_bar, flush!
+export FeedSession, handle_tick!, close_session!, run_feed!
 
 export FeatureScaler, fit_scaler, transform, transform_row, unscale_coefficients
 export BayesianReturnModel, HorizonMismatchError, design_columns, response_scale

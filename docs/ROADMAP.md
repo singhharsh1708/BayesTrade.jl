@@ -15,7 +15,7 @@ tests pass in CI and the capability is reachable from the CLI or the API.
 | 8 | Event-driven backtester and walk-forward | done |
 | 9 | Deterministic risk engine | done |
 | 10 | Paper broker | done |
-| 11 | Live market WebSocket | pending |
+| 11 | Live market feed and tick aggregation | done |
 | 12 | Dashboard | pending |
 | 13 | Zerodha Kite integration | pending |
 | 14 | Extended paper trading | pending |
