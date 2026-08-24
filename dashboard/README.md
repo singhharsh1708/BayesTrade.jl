@@ -41,6 +41,17 @@ The current replay declines on every single bar. That is the correct answer on
 a generator with no exploitable drift, and the page says so rather than showing
 an empty blotter.
 
+## Deploying
+
+The page is static, so any file host works. It currently sits on Vercel:
+
+```sh
+cd dashboard && vercel deploy --prod
+```
+
+`.vercel/` holds the project link and is ignored; deleting it means the next
+deploy creates a new project rather than updating this one.
+
 ## Not yet
 
 There is no HTTP server on the Julia side, so the page reads a file rather than
