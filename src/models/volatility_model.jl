@@ -205,6 +205,7 @@ Absorb one bar. Closed form, no refit.
 function update!(model::BayesianVolatilityModel, observation::TrainingExample)
     require_fitted(model)
     check_horizons(model, [observation])
+    require_later(model, observation.features.as_of)
     absorb!(model.filter, model.source, observation.features)
     model.state.n_observations += 1
     model.state.train_end = observation.features.as_of

@@ -60,6 +60,10 @@ function save_model(model::BayesianReturnModel, path::AbstractString)
         "scaler" => parameters(scaler),
         "state" => state(model.regression),
     )
+    # Written only when there is a policy to write, so an unscaled model produces exactly
+    # the bundle it produced before policies existed.
+    policy = policy_parameters(model.policy)
+    policy === nothing || (bundle["config"]["policy"] = policy)
 
     return write_bundle(bundle, path)
 end
@@ -181,9 +185,12 @@ function load_model(path::AbstractString)
         throw(ModelFileError(string(path, ": ", sprint(showerror, error))))
     end
 
+    # Required, not optional. Treating a missing hash as "nothing to check" means deleting
+    # one line from a file turns off the only thing standing between a corrupt bundle and a
+    # model that trades on it.
     stored = bundle_object(bundle, "model")
-    expected = haskey(stored, "params_hash") ? bundle_text(stored, "params_hash") : nothing
-    if expected !== nothing && params_hash(model) != expected
+    expected = bundle_text(stored, "params_hash")
+    if params_hash(model) != expected
         throw(
             ModelFileError(
                 string(
@@ -229,6 +236,13 @@ function bundle_whole(bundle::AbstractDict, name::String)
     isinteger(value) ||
         throw(ModelFileError(string("\"", name, "\" is ", value, ", expected a whole number")))
     return Int(value)
+end
+
+function bundle_count(bundle::AbstractDict, name::String)
+    value = bundle_whole(bundle, name)
+    value >= 0 ||
+        throw(ModelFileError(string("\"", name, "\" is ", value, ", expected a count")))
+    return value
 end
 
 function bundle_text(bundle::AbstractDict, name::String)
@@ -329,6 +343,7 @@ function build_return_model(bundle::AbstractDict)
         bundle_names(config, "feature_names");
         horizon_bars = bundle_whole(config, "horizon_bars"),
         forgetting = bundle_number(config, "forgetting"),
+        policy = build_policy(config),
         prior = NormalInverseGammaPrior(
             bundle_numbers(prior_bundle, "mean"),
             bundle_matrix(prior_bundle, "precision"),
@@ -351,14 +366,46 @@ function build_return_model(bundle::AbstractDict)
             "xy" => bundle_numbers(saved, "xy"),
             "yy" => bundle_number(saved, "yy"),
             "weight" => bundle_number(saved, "weight"),
-            "n_seen" => bundle_whole(saved, "n_seen"),
+            "n_seen" => bundle_count(saved, "n_seen"),
         ),
-        n_observations = bundle_whole(stored, "n_observations"),
+        n_observations = bundle_count(stored, "n_observations"),
         fitted_at = bundle_moment(stored, "fitted_at"),
         train_start = bundle_moment(stored, "train_start"),
         train_end = bundle_moment(stored, "train_end"),
     )
     return model
+end
+
+"""
+    build_policy(config)
+
+The response-scale policy a bundle describes.
+
+A file written before policies existed has no `policy` block, and the model it describes was
+by definition unscaled, so its absence means [`ConstantScale`](@ref) rather than an error.
+That is what keeps every return-model file already on disk loading unchanged.
+"""
+function build_policy(config::AbstractDict)
+    haskey(config, "policy") || return ConstantScale()
+    policy = bundle_object(config, "policy")
+    kind = bundle_text(policy, "kind")
+    kind == "constant" && return ConstantScale()
+    kind == "volatility" && return VolatilityScale(
+        Symbol(bundle_text(policy, "column"));
+        floor = bundle_number(policy, "floor"),
+        annualised = bundle_flag(policy, "annualised"),
+    )
+    throw(ModelFileError(string("unknown response scale policy \"", kind, "\"")))
+end
+
+function bundle_flag(bundle::AbstractDict, name::String)
+    value = bundle_field(bundle, name)
+    value isa Bool || throw(
+        ModelFileError(
+            string("\"", name, "\" holds ", typeof(value), ", expected true or false"),
+        ),
+    )
+    return value
 end
 
 function build_volatility_model(bundle::AbstractDict)
@@ -397,10 +444,10 @@ function build_volatility_model(bundle::AbstractDict)
             "weights" => bundle_numbers(saved, "weights"),
             "squares" => bundle_numbers(saved, "squares"),
             "log_weights" => bundle_numbers(saved, "log_weights"),
-            "n_seen" => bundle_whole(saved, "n_seen"),
-            "n_skipped" => bundle_whole(saved, "n_skipped"),
+            "n_seen" => bundle_count(saved, "n_seen"),
+            "n_skipped" => bundle_count(saved, "n_skipped"),
         ),
-        n_observations = bundle_whole(stored, "n_observations"),
+        n_observations = bundle_count(stored, "n_observations"),
         fitted_at = bundle_moment(stored, "fitted_at"),
         train_start = bundle_moment(stored, "train_start"),
         train_end = bundle_moment(stored, "train_end"),

@@ -54,13 +54,14 @@ end
         # Statistics are stored, not the posterior, so learning continues.
         mktempdir() do dir
             examples = persist_examples()
-            original = persist_fitted()
+            original = BayesianReturnModel(PERSIST_FEATURES; horizon_bars = 5)
+            fit!(original, examples[1:(end - 20)])
             path = joinpath(dir, "model.json")
             save_model(original, path)
             restored = load_model(path)
 
             before = effective_sample_size(restored.regression)
-            for example in examples[1:20]
+            for example in examples[(end - 19):end]
                 update!(original, example)
                 update!(restored, example)
             end

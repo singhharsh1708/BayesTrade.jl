@@ -291,9 +291,13 @@ end
         end
 
         @testset "the model version changes when the posterior does" begin
-            model, examples, _ = return_fitted()
+            # Fitted short of the end so there is a bar the model has not already seen.
+            # Replaying one it has absorbed would count it twice.
+            _, examples, _ = return_fitted()
+            model = BayesianReturnModel(RETURN_FEATURES; horizon_bars = 1)
+            fit!(model, examples[1:(end - 1)])
             before = params_hash(model)
-            update!(model, first(examples))
+            update!(model, last(examples))
             @test params_hash(model) != before
         end
 

@@ -33,6 +33,7 @@ using Test
     include("test_variance_filter.jl")
     include("test_return_model.jl")
     include("test_volatility_model.jl")
+    include("test_scaled_return_model.jl")
     include("test_calibration.jl")
     include("test_walk_forward.jl")
     include("test_persistence.jl")
