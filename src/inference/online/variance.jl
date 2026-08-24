@@ -93,9 +93,8 @@ struct InverseGammaPrior
     function InverseGammaPrior(shape::Real, rate::Real)
         shape > 1 ||
             throw(ArgumentError(string("prior shape must exceed 1, got ", shape)))
-        # Above the rate floor, not merely above zero. Every posterior rate is at least
-        # this one, so requiring it here is what makes the floor genuinely unreachable
-        # instead of unreachable-for-sensible-priors.
+        # Above the floor, not just above zero: every posterior rate is at least this one,
+        # which is what makes the floor unreachable.
         rate > VARIANCE_MIN_RATE || throw(
             ArgumentError(
                 string("prior rate must exceed ", VARIANCE_MIN_RATE, ", got ", rate),
@@ -283,10 +282,8 @@ function discount_entropy(filter::DiscountedVarianceFilter)
     total = 0.0
     for value in filter.log_weights
         weight = exp(value)
-        # Skipping only exact zeros, where the limit of `w log w` is zero. A `NaN` weight
-        # must carry through rather than be stepped over: this is the diagnostic that
-        # would reveal a corrupt posterior, and reporting zero here would report perfect
-        # certainty at exactly the moment there is none.
+        # Skip only exact zeros, the limit of `w log w`. A `NaN` must propagate: reporting
+        # zero entropy on a corrupt posterior claims certainty where there is none.
         iszero(weight) || (total -= weight * value)
     end
     return total
@@ -513,16 +510,9 @@ function observe_variance!(
     )
     isfinite(mass) && mass > 0 ||
         throw(ArgumentError(string("weight must be finite and positive, got ", weight)))
-    # Both arguments can be finite while the observation is still unabsorbable: the
-    # product can overflow, and so can the accumulated sum of squares after several large
-    # bars, neither of which any single-argument check sees. An infinite rate sends every
-    # component's evidence to `-Inf`, the softmax to `NaN`, and the grid posterior is then
-    # destroyed for good, silently, with the error surfacing calls later somewhere inside
-    # the mixture constructor.
-    #
-    # So the evidence is computed first and checked before anything is written. Nothing
-    # here mutates until the whole step is known to be representable, which makes a
-    # refused observation a bar that did not happen rather than a bar that half happened.
+    # Finite arguments can still overflow the product or the accumulated squares, and an
+    # infinite rate takes every evidence to `-Inf` and the softmax to `NaN`. Check the whole
+    # step before writing any of it.
     size = n_components(filter)
     for index in 1:size
         filter.evidence[index] = log_variance_evidence(
@@ -664,9 +654,8 @@ function fit!(
             ),
         ),
     )
-    # Everything is checked before anything is absorbed. Validating inside the loop would
-    # leave a rejected batch having already overwritten the filter with a prefix of itself,
-    # which is neither the old state nor the prior and looks like neither.
+    # Check the whole batch first. Validating inside the loop leaves a rejected window
+    # holding a prefix of itself: neither the old state nor the prior.
     for index in eachindex(values)
         isfinite(values[index]) && values[index] >= 0 || throw(
             ArgumentError(
@@ -799,11 +788,8 @@ root is monotone, so it carries quantiles across unchanged.
 function volatility_interval(
         filter::DiscountedVarianceFilter, level::Real = DEFAULT_LEVEL,
     )
-    # The tail is a declared `Float64` rather than whatever arithmetic on an abstract
-    # `Real` produces. `Real` is open, so the result of converting one is not knowable,
-    # and both `Statistics` and `Distributions` own a `quantile`: with an unknown
-    # probability the iterator method of the first genuinely applies to a concrete
-    # mixture, and it would fail rather than return a quantile.
+    # Declared `Float64`: `Real` is open so converting one does not infer, and
+    # `Statistics.quantile`'s iterator method would then apply to a mixture and fail.
     posterior = variance_posterior(filter)
     tail::Float64 = (1 - level) / 2
     return CredibleInterval(
@@ -850,10 +836,8 @@ Everything is checked into locals before anything is assigned, so a rejected sta
 filter exactly as it was rather than half-restored.
 """
 function load_state!(filter::DiscountedVarianceFilter, saved::AbstractDict)
-    # Copied, not just converted. `convert` returns its argument unchanged when it is
-    # already a `Vector{Float64}`, so assigning the result would leave the filter sharing
-    # memory with the caller's dictionary, and a later write to that dictionary would
-    # silently rewrite the posterior.
+    # Copied, not just converted: `convert` is a no-op on a `Vector{Float64}`, so the
+    # filter would share memory with the caller's dictionary.
     size = n_components(filter)
     weights = copy(convert(Vector{Float64}, saved["weights"]))
     squares = copy(convert(Vector{Float64}, saved["squares"]))

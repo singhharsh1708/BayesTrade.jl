@@ -159,12 +159,8 @@ function fit!(
     issorted(stamps) ||
         throw(ArgumentError("training rows must be in chronological order"))
 
-    # Absorbed into a fresh filter and swapped in only once the whole window is through.
-    # Resetting first and rebuilding in place would leave a refit that throws part way
-    # holding neither the old posterior nor a new one, while `FitState` still described the
-    # fit that no longer exists: `predict` would go on answering, stamped with the previous
-    # window's identity and the previous window's row count. That is exactly the
-    # prior-only guess `NotFittedError` exists to prevent, and it errs narrow.
+    # Swapped in only once the window is through. Rebuilding in place leaves a failed refit
+    # answering from the prior under the old fit's identity, and errs narrow.
     replacement = DiscountedVarianceFilter(
         model.filter.prior;
         discounts = model.filter.discounts,
@@ -175,9 +171,8 @@ function fit!(
         absorb!(replacement, model.source, example.features)
     end
 
-    # A window it could not read a single bar of is not a fit. The posterior would be the
-    # prior exactly, and stamping that with the window's row count would put a belief in
-    # the record that the model never formed.
+    # A window it read no bar of is not a fit: the posterior is the prior, and stamping it
+    # with the row count records a belief the model never formed.
     n_absorbed(replacement) > 0 || throw(
         ArgumentError(
             string(

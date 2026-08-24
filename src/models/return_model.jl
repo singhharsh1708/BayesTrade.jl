@@ -204,9 +204,8 @@ end
 
 fit_state(model::BayesianReturnModel) = model.state
 model_name(::BayesianReturnModel) = MOMENTUM
-# The version is the mathematics, not the fitted values, so a scaled model is a different
-# version of the model rather than a different fit of it. Left at 0.1.0 for the plain one so
-# every bundle already on disk still verifies.
+# The version is the mathematics, not the fitted values. Plain stays at 0.1.0 so bundles
+# already on disk still verify.
 model_semver(::BayesianReturnModel{ConstantScale}) = v"0.1.0"
 model_semver(::BayesianReturnModel{VolatilityScale}) = v"0.2.0"
 
@@ -259,8 +258,7 @@ function fit!(model::BayesianReturnModel, observations::AbstractVector{TrainingE
     check_horizons(model, observations)
 
     stamps = DateTime[example.features.as_of for example in observations]
-    # Row i of n carries weight forgetting^(n - i), so the order is not presentation: rows
-    # out of order are silently weighted as though they arrived when they did not.
+    # Row i of n carries weight forgetting^(n - i), so order is not presentation.
     issorted(stamps) ||
         throw(ArgumentError("training rows must be in chronological order"))
 
@@ -276,10 +274,8 @@ function fit!(model::BayesianReturnModel, observations::AbstractVector{TrainingE
             response_scale(model, example.features)
     end
 
-    # The scaler is built and the design validated before either is installed. Assigning
-    # the scaler first would leave a window the regression goes on to refuse having already
-    # replaced the standardisation the current posterior was fitted under, so a refused
-    # refit would change what the model predicts.
+    # Validate before installing: assigning the scaler first lets a window the regression
+    # then refuses replace the standardisation the current posterior was fitted under.
     scaler = fit_scaler(model.feature_names, raw)
     design = build_design(model, raw, scaler)
     all(isfinite, responses) || throw(ArgumentError("responses must be finite"))
@@ -415,9 +411,8 @@ function uncertainty(model::BayesianReturnModel)
 end
 
 function parameters(model::BayesianReturnModel)
-    # The scaler is bound to a local before the nothing check. Narrowing a union field
-    # inside an expression does not refine the field's type for the call that follows, so
-    # the branch that cannot run is still analysed and still has to typecheck.
+    # Bound to a local first: narrowing a union field inside an expression does not refine
+    # it for the call that follows, so the dead branch still has to typecheck.
     scaler = model.scaler
     recorded = Dict{String, Any}(
         "columns" => String[string(name) for name in design_columns(model)],
