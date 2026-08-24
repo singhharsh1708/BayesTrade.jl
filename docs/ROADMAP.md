@@ -11,8 +11,8 @@ tests pass in CI and the capability is reachable from the CLI or the API.
 | 4 | Bayesian price/return model | done |
 | 5 | Bayesian volatility model | done |
 | 6 | Market regime model | done |
-| 7 | Bayesian fusion layer | pending |
-| 8 | Event-driven backtester and walk-forward | pending |
+| 7 | Bayesian fusion layer | done |
+| 8 | Event-driven backtester and walk-forward | done |
 | 9 | Deterministic risk engine | pending |
 | 10 | Paper broker | pending |
 | 11 | Live market WebSocket | pending |
