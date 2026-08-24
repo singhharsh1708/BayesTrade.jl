@@ -68,6 +68,9 @@ include("risk/engine.jl")
 include("feed/stream.jl")
 include("execution/broker.jl")
 include("execution/paper.jl")
+# After execution/broker.jl: the Kite client speaks in Orders and Quotes.
+include("kite/protocol.jl")
+include("kite/session.jl")
 include("backtest/replay.jl")
 include("report/dashboard.jl")
 
@@ -195,6 +198,13 @@ export TickSource, ReplayTickSource, next_tick!, source_symbols, exhausted
 export FeedHealth, is_stale, silence, accept!, mark_stale!
 export BarAggregator, bucket_of, has_open_bar, push_tick!, build_bar, flush!
 export FeedSession, handle_tick!, close_session!, run_feed!
+
+export KiteSegment, NSE_CM, BSE_CM, NSE_FO, CDS, BSE_CDS, MCX_FO, OTHER_SEGMENT
+export KiteTick, DepthEntry, KiteProtocolError, segment_of, price_divisor
+export parse_packet, parse_frame, to_quote
+export KiteCredentials, KiteSession, KiteRequest, KiteResponse, KiteError
+export credentials_from_env, login_url, session_checksum, is_authenticated
+export authorisation, build_request, kite_call, authenticate!, kite_quote, order_params
 
 export dashboard_payload, write_dashboard, DASHBOARD_SCHEMA_VERSION
 

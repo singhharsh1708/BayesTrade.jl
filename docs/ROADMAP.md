@@ -16,8 +16,8 @@ tests pass in CI and the capability is reachable from the CLI or the API.
 | 9 | Deterministic risk engine | done |
 | 10 | Paper broker | done |
 | 11 | Live market feed and tick aggregation | done |
-| 12 | Dashboard | done (static payload; HTTP server pending) |
-| 13 | Zerodha Kite integration | pending |
+| 12 | Dashboard payload (JSON contract; no page in-tree) | done |
+| 13 | Zerodha Kite: binary tick protocol and REST client | done (no live credentials) |
 | 14 | Extended paper trading | pending |
 | 15 | Small live capital, only if 14 justifies it | pending |
 
