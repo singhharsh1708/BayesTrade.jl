@@ -69,6 +69,7 @@ include("feed/stream.jl")
 include("execution/broker.jl")
 include("execution/paper.jl")
 include("backtest/replay.jl")
+include("report/dashboard.jl")
 
 export TradingMode, BACKTEST, PAPER, LIVE, is_simulated
 export Action, BUY, SELL, HOLD, NO_TRADE, is_actionable
@@ -194,6 +195,8 @@ export TickSource, ReplayTickSource, next_tick!, source_symbols, exhausted
 export FeedHealth, is_stale, silence, accept!, mark_stale!
 export BarAggregator, bucket_of, has_open_bar, push_tick!, build_bar, flush!
 export FeedSession, handle_tick!, close_session!, run_feed!
+
+export dashboard_payload, write_dashboard, DASHBOARD_SCHEMA_VERSION
 
 export FeatureScaler, fit_scaler, transform, transform_row, unscale_coefficients
 export BayesianReturnModel, HorizonMismatchError, design_columns, response_scale
