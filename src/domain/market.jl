@@ -156,7 +156,21 @@ struct Quote
             volume::Real = 0.0,
         )
         isempty(symbol) && throw(ArgumentError("quote needs a symbol"))
-        last_price > 0 || throw(ArgumentError("$symbol: last_price must be positive"))
+        # Finite as well as positive. `Inf > 0` is true, and an infinite price propagates
+        # into bars, features and posteriors without ever raising: it is not a price, and a
+        # feed that sends one is a feed that must be refused at the boundary.
+        (isfinite(last_price) && last_price > 0) ||
+            throw(ArgumentError("$symbol: last_price must be finite and positive, got $last_price"))
+        (isfinite(volume) && volume >= 0) ||
+            throw(ArgumentError("$symbol: volume must be finite and non-negative, got $volume"))
+        for (name, side) in (("bid", bid), ("ask", ask))
+            side === nothing && continue
+            (isfinite(side) && side > 0) ||
+                throw(ArgumentError("$symbol: $name must be finite and positive, got $side"))
+        end
+        (bid_quantity >= 0 && ask_quantity >= 0) || throw(
+            ArgumentError("$symbol: book quantities cannot be negative"),
+        )
         if bid !== nothing && ask !== nothing && bid > ask
             throw(ArgumentError("$symbol: crossed book, bid $bid above ask $ask"))
         end

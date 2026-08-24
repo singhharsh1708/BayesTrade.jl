@@ -31,6 +31,7 @@ Base.@kwdef mutable struct SessionCounters
     ticks::Int = 0
     bars::Int = 0
     stale_bars::Int = 0
+    halted_bars::Int = 0
     predictions::Int = 0
     declined::Int = 0
     approved::Int = 0
@@ -70,6 +71,7 @@ mutable struct PaperTradingSession{F <: Tuple}
     pending::Vector{Tuple{Int, DateTime, Any}}
     counters::SessionCounters
     journal::Union{String, Nothing}
+    journal_failed::Bool
 
     function PaperTradingSession(
             symbol::AbstractString, factories::F, features::FeatureSet;
@@ -104,7 +106,7 @@ mutable struct PaperTradingSession{F <: Tuple}
             limits, String(sector), Int(warmup), Int(refit_every), 0, 0, false,
             Float64(starting_cash), Float64(starting_cash), Float64(starting_cash), nothing,
             Tuple{Int, DateTime, Any}[], SessionCounters(),
-            journal === nothing ? nothing : String(journal),
+            journal === nothing ? nothing : String(journal), false,
         )
     end
 end
@@ -124,10 +126,19 @@ not be one process and a crash must not take the record with it.
 function record!(session::PaperTradingSession, entry::AbstractDict)
     path = session.journal
     path === nothing && return session
-    mkpath(dirname(abspath(path)))
-    open(path, "a") do handle
-        JSON3.write(handle, entry)
-        println(handle)
+    # A journal that cannot be written must not take the session down with it. The write is
+    # attempted, the failure is remembered, and the health check turns that into a refusal
+    # to trade: unable to explain a decision is a reason to stop, not a reason to crash.
+    try
+        mkpath(dirname(abspath(path)))
+        open(path, "a") do handle
+            JSON3.write(handle, entry)
+            println(handle)
+        end
+        session.journal_failed = false
+    catch error
+        error isa InterruptException && rethrow()
+        session.journal_failed = true
     end
     return session
 end
@@ -307,15 +318,20 @@ function act!(session::PaperTradingSession, bar::Bar, price::Quote)
         return nothing
     end
 
-    # A bar the feed did not deliver is not a quiet bar. The models are told nothing rather
-    # than told a zero, and the session records that it declined to look.
-    if is_stale(session.feed.health, bar.timestamp)
-        session.counters.stale_bars += 1
+    # Fail closed. Every condition that must hold before an order may be sent is checked
+    # here, and any one of them failing stops the bar. A stale feed, an unfitted model, an
+    # account whose history was lost, a journal that cannot be written: none of these are
+    # reasons to guess, and the refusal is recorded with the condition that caused it.
+    health = check_health(session, bar.timestamp)
+    if !may_trade(health)
+        session.counters.halted_bars += 1
+        is_stale(session.feed.health, bar.timestamp) && (session.counters.stale_bars += 1)
         record!(
             session,
             Dict{String, Any}(
-                "event" => "stale", "as_of" => string(bar.timestamp),
-                "silent_for" => string(silence(session.feed.health, bar.timestamp)),
+                "event" => "halted", "as_of" => string(bar.timestamp),
+                "failing" => String[string(status.name) for status in problems(health)],
+                "detail" => String[status.detail for status in problems(health)],
             ),
         )
         return nothing
@@ -415,6 +431,7 @@ function session_report(session::PaperTradingSession)
         "fills" => session.counters.fills,
         "rejected" => session.counters.rejected,
         "stale_bars" => session.counters.stale_bars,
+        "halted_bars" => session.counters.halted_bars,
         "refits" => session.counters.refits,
         "settled" => session.counters.settled,
         "pending" => length(session.pending),

@@ -65,6 +65,7 @@ include("models/report.jl")
 include("portfolio/state.jl")
 include("decision/engine.jl")
 include("risk/engine.jl")
+include("feed/hours.jl")
 include("feed/stream.jl")
 include("execution/broker.jl")
 include("execution/paper.jl")
@@ -74,6 +75,9 @@ include("kite/session.jl")
 include("backtest/replay.jl")
 include("report/dashboard.jl")
 include("session/paper.jl")
+# After session/paper.jl: health inspects a session, and the session calls health at run
+# time, so the mutual reference resolves at the call rather than at definition.
+include("ops/health.jl")
 
 export TradingMode, BACKTEST, PAPER, LIVE, is_simulated
 export Action, BUY, SELL, HOLD, NO_TRADE, is_actionable
@@ -195,8 +199,9 @@ export is_buy, signed_quantity, cash_flow, was_filled
 export PaperBroker, PaperCosts, fill_price, commission, tradeable_quantity, apply!
 export mark_to_market!, equity, portfolio, order_from_ruling, next_order_id!
 
+export MarketHours, IST_OFFSET, exchange_time, is_open, same_session, session_bounds
 export TickSource, ReplayTickSource, next_tick!, source_symbols, exhausted
-export FeedHealth, is_stale, silence, accept!, mark_stale!
+export FeedHealth, is_stale, silence, accept!, mark_stale!, arrived_after_silence
 export BarAggregator, bucket_of, has_open_bar, push_tick!, build_bar, flush!
 export FeedSession, handle_tick!, close_session!, run_feed!
 
@@ -211,6 +216,8 @@ export dashboard_payload, write_dashboard, DASHBOARD_SCHEMA_VERSION
 
 export PaperTradingSession, SessionCounters, SESSION_SCHEMA_VERSION
 export on_tick!, on_bar!, close_bar!, session_report, record!
+
+export HealthStatus, SystemHealth, check_health, may_trade, healthy, problems
 
 export FeatureScaler, fit_scaler, transform, transform_row, unscale_coefficients
 export BayesianReturnModel, HorizonMismatchError, design_columns, response_scale
