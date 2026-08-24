@@ -213,10 +213,22 @@ conventions rather than guarantees.
 A reducible chain has no unique stationary distribution, and the solve says so rather than
 returning whichever eigenvector came back first.
 """
-function stationary_distribution(process::RegimeSwitchingReturns)
-    n = n_regimes(process)
-    system = Matrix{Float64}(transpose(process.transitions) - I)
-    system[n, :] .= 1.0
+stationary_distribution(process::RegimeSwitchingReturns) =
+    stationary_distribution(process.transitions)
+
+function stationary_distribution(transitions::AbstractMatrix{<:Real})
+    n = Base.size(transitions, 1)
+    Base.size(transitions, 2) == n ||
+        throw(ArgumentError(string("a transition matrix must be square, got ", Base.size(transitions))))
+    # Built entrywise rather than from `transpose(transitions) - I`, which does not infer
+    # once the argument is an abstract matrix.
+    system = Matrix{Float64}(undef, n, n)
+    for row in 1:n, column in 1:n
+        system[row, column] = transitions[column, row] - (row == column ? 1.0 : 0.0)
+    end
+    for column in 1:n
+        system[n, column] = 1.0
+    end
     target = zeros(Float64, n)
     target[n] = 1.0
     # An explicit LU rather than a bare backslash. Backslash on a plain matrix goes through

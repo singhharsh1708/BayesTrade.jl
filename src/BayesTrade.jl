@@ -47,6 +47,7 @@ include("features/labels.jl")
 include("features/presets.jl")
 include("inference/online/linear.jl")
 include("inference/online/variance.jl")
+include("inference/online/regime.jl")
 include("models/scaling.jl")
 include("models/return_model.jl")
 include("models/volatility_model.jl")
@@ -149,6 +150,12 @@ export evolved_shape, evolved_rate, expected_volatility, expected_log_volatility
 export volatility_uncertainty, plugin_variance, variance_inflation
 export observe_variance!, skip_observation!, return_predictive, variance_posterior
 export predict_realised_variance, volatility_interval
+
+export RegimePrior, RegimeParameters, RegimeFilter, REGIME_STATES, N_REGIMES
+export regime_transition, regime_shape, estimate_regime_parameters, emission
+export regime_probabilities, regime_belief, regime_confidence, most_likely_regime
+export propagate, observe_return!, fit_filter!, horizon_weights, predict_return
+export variance_decomposition, transition_matrix, n_states
 
 export FeatureScaler, fit_scaler, transform, transform_row, unscale_coefficients
 export BayesianReturnModel, HorizonMismatchError, design_columns, response_scale
