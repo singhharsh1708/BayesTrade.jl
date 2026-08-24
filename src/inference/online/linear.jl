@@ -59,9 +59,8 @@ struct NormalInverseGammaPrior
             mean::AbstractVector{<:Real}, precision::AbstractMatrix{<:Real},
             shape::Real, rate::Real,
         )
-        # Converted to concrete types before anything is checked. Validating an abstractly
-        # typed matrix means every comparison below runs through a generic path, which is
-        # both slower and harder to reason about than the arithmetic it is checking.
+        # Concrete before checked: validating an abstract matrix routes every comparison
+        # below through a generic path.
         centre = convert(Vector{Float64}, mean)
         matrix = convert(Matrix{Float64}, precision)
         width = length(centre)
@@ -75,10 +74,8 @@ struct NormalInverseGammaPrior
                 ),
             ),
         )
-        # Checked elementwise rather than through `isapprox` against a transposed view. The
-        # norm-based comparison answers a different question — whether the matrices are
-        # close overall — where what matters is that no single pair of entries disagrees,
-        # and a large well-conditioned block would otherwise mask a small asymmetric one.
+        # Elementwise, not `isapprox`: a norm comparison asks whether the matrices are
+        # close overall, so a large block would mask a small asymmetric one.
         for column in 1:width, row in 1:(column - 1)
             isapprox(matrix[row, column], matrix[column, row]; atol = 1.0e-12) || throw(
                 ArgumentError(
@@ -91,10 +88,8 @@ struct NormalInverseGammaPrior
             )
         end
 
-        # Checked by attempting a factorisation rather than by decomposing. A Cholesky
-        # succeeds exactly when the matrix is positive definite, and nudging the diagonal
-        # first admits the semi-definite case a genuinely vague prior needs, where one
-        # direction carries no information at all.
+        # Cholesky succeeds exactly when the matrix is positive definite; the nudged
+        # diagonal admits the semi-definite case a vague prior needs.
         nudged = Symmetric(matrix + 1.0e-10 * Matrix{Float64}(I, width, width))
         issuccess(cholesky(nudged; check = false)) ||
             throw(ArgumentError("prior precision must be positive semi-definite"))
@@ -289,15 +284,13 @@ function fit!(model::BayesianLinearModel, X::AbstractMatrix{<:Real}, y::Abstract
         total += weights[row] * responses[row]^2
     end
 
-    # `mul!` into a preallocated buffer rather than `*`, which avoids an intermediate
-    # allocation and names the method instead of walking a dispatch tree.
+    # `mul!` into a buffer rather than `*`: no intermediate allocation.
     size = n_features(model)
     scatter = Matrix{Float64}(undef, size, size)
     mul!(scatter, transpose(design), weighted)
 
-    # The matrix-vector half is written out. The generic path routes through `gemv!`, which
-    # carries a branch for symmetric operands that this call can never take, and the loop is
-    # O(n*d) against a design that is at most a few dozen columns wide.
+    # Written out: the generic path routes through `gemv!`, which carries a symmetric
+    # branch this call can never take.
     linear = zeros(Float64, size)
     for column in 1:size, row in 1:n
         linear[column] += weighted[row, column] * responses[row]
@@ -332,8 +325,8 @@ function update!(model::BayesianLinearModel, x::AbstractVector{<:Real}, y::Real)
         model.yy *= model.forgetting
         model.weight *= model.forgetting
     end
-    # Written out rather than broadcast. This is the hot path, the loop allocates nothing,
-    # and a broadcast over an abstractly typed accumulator does not infer.
+    # Hot path: the loop allocates nothing, and broadcasting over an abstract accumulator
+    # does not infer.
     response = Float64(y)
     size = n_features(model)
     for column in 1:size, index in 1:size
@@ -463,8 +456,8 @@ function load_state!(model::BayesianLinearModel, saved::AbstractDict)
         )
         xx[index, :] = convert(Vector{Float64}, row)
     end
-    # Copied, since `convert` is a no-op on a vector that already has the right type and
-    # the model would otherwise share memory with the caller's dictionary.
+    # Copied: `convert` is a no-op on a `Vector{Float64}`, so the model would share memory
+    # with the caller's dictionary.
     xy = copy(convert(Vector{Float64}, saved["xy"]))
     length(xy) == size ||
         throw(ArgumentError(string("state describes ", length(xy), " linear terms")))
@@ -472,9 +465,8 @@ function load_state!(model::BayesianLinearModel, saved::AbstractDict)
     yy = Float64(saved["yy"])
     weight = Float64(saved["weight"])
     n_seen = Int(saved["n_seen"])
-    # A sum of squares and a discounted count cannot be negative. Left unchecked these
-    # surface much later as a domain error from a square root, naming neither the field nor
-    # the file it came from.
+    # A sum of squares and a discounted count cannot be negative; unchecked they surface
+    # later as a domain error naming neither the field nor the file.
     (isfinite(yy) && yy >= 0) ||
         throw(ArgumentError(string("state yy must be finite and non-negative, got ", yy)))
     (isfinite(weight) && weight >= 0) || throw(
@@ -510,16 +502,12 @@ meaningful.
 function solve_precision(model::BayesianLinearModel, target::Vector{Float64})
     dense = posterior_precision(model)
     factorisation = cholesky(Symmetric(dense); check = false)
-    # `ldiv!` into a copy rather than `\`. The backslash routes through a generic solve,
-    # and the argument is typed concretely rather than as an `AbstractVector` so the LAPACK
-    # stride check resolves instead of widening to a type it cannot reason about. Every
-    # caller in this file already holds a `Vector{Float64}`.
+    # `ldiv!` into a copy rather than `\`, which routes through a generic solve. Typed
+    # concretely so the LAPACK stride check resolves.
     issuccess(factorisation) && return ldiv!(factorisation, copy(target))
 
-    # Unreachable with any proper prior, since the prior's own precision is already positive
-    # definite. A ridge proportional to the scale of the problem is the honest fallback: it
-    # says the answer is regularised rather than exact, where a pseudo-inverse would quietly
-    # pick the least-norm solution and look like a real posterior.
+    # Unreachable with a proper prior. A ridge says the answer is regularised, where a
+    # pseudo-inverse would pick the least-norm solution and look like a real posterior.
     ridge = max(tr(dense) / n_features(model), 1.0) * sqrt(eps(Float64))
     nudged = cholesky(Symmetric(dense + ridge * I); check = false)
     issuccess(nudged) || throw(

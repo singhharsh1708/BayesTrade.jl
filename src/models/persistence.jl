@@ -60,8 +60,8 @@ function save_model(model::BayesianReturnModel, path::AbstractString)
         "scaler" => parameters(scaler),
         "state" => state(model.regression),
     )
-    # Written only when there is a policy to write, so an unscaled model produces exactly
-    # the bundle it produced before policies existed.
+    # Only written when there is one, so an unscaled model produces the bundle it always
+    # produced.
     policy = policy_parameters(model.policy)
     policy === nothing || (bundle["config"]["policy"] = policy)
 
@@ -140,9 +140,8 @@ Read a model written by [`save_model`](@ref), verifying it round-tripped.
 """
 function load_model(path::AbstractString)
     isfile(path) || throw(ModelFileError(string("no such model file: ", path)))
-    # Read lazily rather than into a typed dictionary. The typed read builds its container
-    # through a generic path that does not infer, and the lazy object supports the string
-    # indexing this loader uses without materialising anything it will not touch.
+    # Lazy rather than typed: the typed read builds its container through a path that does
+    # not infer, and the lazy object indexes by string just as well.
     parsed = try
         JSON3.read(read(path, String))
     catch error
@@ -150,9 +149,8 @@ function load_model(path::AbstractString)
         throw(ModelFileError(string(path, ": ", sprint(showerror, error))))
     end
 
-    # A bare number, string or list is valid JSON, so the top level is narrowed here rather
-    # than left to fail somewhere below with a method error naming JSON3 internals instead
-    # of the file that was actually wrong.
+    # A bare number or list is valid JSON, so narrow here rather than fail below with a
+    # method error naming JSON3 internals instead of the file.
     parsed isa AbstractDict ||
         throw(ModelFileError(string(path, ": holds a ", typeof(parsed), ", not a bundle")))
     bundle = parsed
@@ -185,9 +183,8 @@ function load_model(path::AbstractString)
         throw(ModelFileError(string(path, ": ", sprint(showerror, error))))
     end
 
-    # Required, not optional. Treating a missing hash as "nothing to check" means deleting
-    # one line from a file turns off the only thing standing between a corrupt bundle and a
-    # model that trades on it.
+    # Required, not optional: treating a missing hash as nothing to check lets one deleted
+    # line disable the only integrity check the file has.
     stored = bundle_object(bundle, "model")
     expected = bundle_text(stored, "params_hash")
     if params_hash(model) != expected
@@ -359,8 +356,8 @@ function build_return_model(bundle::AbstractDict)
             bundle_numbers(scaler_bundle, "centres"),
             bundle_numbers(scaler_bundle, "scales"),
         ),
-        # The statistics are narrowed here rather than in `load_state!`, which is also reached
-        # from callers that already hold real vectors and should not have to know about files.
+        # Narrowed here, not in `load_state!`, which is also reached from callers that
+        # already hold real vectors.
         regression_state = Dict{String, Any}(
             "xx" => bundle_rows(saved, "xx"),
             "xy" => bundle_numbers(saved, "xy"),
