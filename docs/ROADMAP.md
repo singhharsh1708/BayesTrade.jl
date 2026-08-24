@@ -13,7 +13,7 @@ tests pass in CI and the capability is reachable from the CLI or the API.
 | 6 | Market regime model | done |
 | 7 | Bayesian fusion layer | done |
 | 8 | Event-driven backtester and walk-forward | done |
-| 9 | Deterministic risk engine | pending |
+| 9 | Deterministic risk engine | done |
 | 10 | Paper broker | pending |
 | 11 | Live market WebSocket | pending |
 | 12 | Dashboard | pending |

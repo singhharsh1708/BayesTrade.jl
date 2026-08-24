@@ -79,10 +79,12 @@ Base.@kwdef struct RiskLimits
             throw(ArgumentError("min_confidence must lie in [0, 1], got $min_confidence"))
 
         # A gate at or below a coin flip is not a gate.
-        0.5 <= min_probability_positive < 1 || throw(
+        # Strictly above a half. At exactly a half every prediction is either a buy or a
+        # sell, the no-trade band vanishes, and a coin becomes a trading signal.
+        0.5 < min_probability_positive < 1 || throw(
             ArgumentError(
                 string(
-                    "min_probability_positive must lie in [0.5, 1), got ",
+                    "min_probability_positive must lie in (0.5, 1), got ",
                     min_probability_positive,
                 ),
             ),
