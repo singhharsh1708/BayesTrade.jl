@@ -62,6 +62,9 @@ include("inference/offline/walk_forward.jl")
 include("models/persistence.jl")
 include("models/report.jl")
 # After calibration.jl: a replay reports the calibration of what it believed.
+include("portfolio/state.jl")
+include("decision/engine.jl")
+include("risk/engine.jl")
 include("backtest/replay.jl")
 
 export TradingMode, BACKTEST, PAPER, LIVE, is_simulated
@@ -172,6 +175,12 @@ export ModelReliability, reliabilities, reliability_belief, mean_log_scores, sco
 export n_models
 export FusedPrediction, fuse, score_fusion!, epistemic_share
 export ReplayRecord, ReplayConfig, ReplayReport, replay
+
+export Position, Portfolio, exposure, gross_exposure, is_long, is_short, unrealised_pnl
+export n_positions, position_weight, portfolio_exposure, sector_exposure, drawdown, daily_loss
+
+export TradeIntent, decide, decline, downside, size_by_risk
+export RiskCheck, RiskRuling, review, approved, failures, was_reduced, passed, failed
 
 export FeatureScaler, fit_scaler, transform, transform_row, unscale_coefficients
 export BayesianReturnModel, HorizonMismatchError, design_columns, response_scale

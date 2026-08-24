@@ -38,6 +38,7 @@ using Test
     include("test_regime_model.jl")
     include("test_fusion.jl")
     include("test_replay.jl")
+    include("test_risk.jl")
     include("test_calibration.jl")
     include("test_walk_forward.jl")
     include("test_persistence.jl")
