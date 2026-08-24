@@ -61,6 +61,9 @@ How the replay is run.
 `warmup` bars train the models before anything is scored. `refit_every` bars they are fitted
 again from scratch; in between they absorb each bar recursively, which is what the live loop
 does and is the reason `update!` exists at all.
+
+Nothing is absorbed or scored until its outcome has actually been realised, which at a horizon
+beyond one bar is several bars after the prediction was made.
 """
 struct ReplayConfig
     warmup::Int
@@ -105,20 +108,25 @@ Walk a labelled series bar by bar, fusing what the models believe and scoring it
 `factories` is one zero-argument constructor per model. They are called at every refit, so a
 replay never carries a model fitted on a window it is about to be scored on.
 
-The ordering inside the loop is the whole point and is worth reading in order: predict from
-the state as it stands, record the outcome that follows, score the models on it, and only then
-let them absorb the bar. Any other order scores a model on something it has already seen.
+The ordering inside the loop is the whole point and is worth reading in order: settle whatever
+has actually been realised by now, refit if it is time, then predict from the state as it
+stands. A prediction is recorded immediately and scored later, when its outcome exists.
+
+At a horizon of one bar the settlement is always the previous bar and the queue is invisible.
+At five bars it is not: scoring a prediction the moment it is made would hand the weights, and
+the return model's own update, a week of information that had not happened yet.
 """
 function replay(
         factories::Tuple, examples::AbstractVector{TrainingExample};
         config::ReplayConfig = ReplayConfig(), forgetting::Real = 0.99,
     )
     isempty(factories) && throw(ArgumentError("a replay needs at least one model"))
-    length(examples) > config.warmup || throw(
+    # The first training window has to be a full warm-up and still stop short of the first
+    # prediction by the horizon, so the replay starts that much later.
+    required = config.warmup + config.horizon_bars + 1
+    length(examples) >= required || throw(
         ArgumentError(
-            string(
-                "need more than ", config.warmup, " rows to replay, got ", length(examples),
-            ),
+            string("need at least ", required, " rows to replay, got ", length(examples)),
         ),
     )
     for example in examples
@@ -139,17 +147,45 @@ function replay(
     reliability = ModelReliability(names; forgetting = forgetting)
 
     records = ReplayRecord[]
+    pending = Tuple{Int, Any}[]
     skipped = 0
     fitted_at = 0
+    absorbed_through = 0
 
-    for index in (config.warmup + 1):length(examples)
-        if fitted_at == 0 || index - fitted_at >= config.refit_every
-            # Fitted on everything strictly before this bar, and never on the bar itself.
-            window = view(examples, 1:(index - 1))
-            for model in models
-                fit!(model, window)
+    for index in required:length(examples)
+        now = examples[index].features.as_of
+
+        # An outcome is usable only once it has happened. At a horizon of one bar that is
+        # the next bar and the distinction is invisible, which is exactly why it has to be
+        # written down: at five bars, scoring a prediction the moment it is made would feed
+        # the weights, and the return model's own update, a week of future.
+        while !isempty(pending)
+            (position, results) = first(pending)
+            examples[position].label.realised_at <= now || break
+            popfirst!(pending)
+            outcome = examples[position].label.forward_log_return
+            score_fusion!(reliability, results, outcome)
+            if position > absorbed_through
+                for model in models
+                    update!(model, examples[position])
+                end
+                absorbed_through = position
             end
-            fitted_at = index
+        end
+
+        if fitted_at == 0 || index - fitted_at >= config.refit_every
+            # The training window stops short of every prediction by the horizon, so no row
+            # in it carries a label that had not been realised by now.
+            stop = index - config.horizon_bars - 1
+            if stop >= config.warmup
+                window = view(examples, 1:stop)
+                for model in models
+                    fit!(model, window)
+                end
+                fitted_at = index
+                absorbed_through = stop
+                filter!(entry -> first(entry) > stop, pending)
+            end
         end
 
         example = examples[index]
@@ -161,20 +197,17 @@ function replay(
             models,
         )
 
-        prediction = fuse(reliability, results)
         outcome = example.label.forward_log_return
         if isfinite(outcome)
-            push!(records, ReplayRecord(prediction, example.label.realised_at, outcome))
-            score_fusion!(reliability, results, outcome)
+            push!(
+                records,
+                ReplayRecord(
+                    fuse(reliability, results), example.label.realised_at, outcome,
+                ),
+            )
+            push!(pending, (index, results))
         else
             skipped += 1
-        end
-
-        # Absorbed last, so nothing above ever saw this bar's own return.
-        if index > fitted_at
-            for model in models
-                update!(model, example)
-            end
         end
     end
 

@@ -24,7 +24,7 @@ rp_config(; kwargs...) = ReplayConfig(; warmup = 800, refit_every = 100, kwargs.
     report = replay(rp_factories(), examples; config = rp_config())
 
     @testset "it scores every bar after the warm-up" begin
-        @test length(report) == length(examples) - 800
+        @test length(report) == length(examples) - 800 - 1
         @test report.n_examples == length(examples)
         @test report.n_skipped == 0
         @test report.symbol == "RELIANCE"
@@ -44,7 +44,7 @@ rp_config(; kwargs...) = ReplayConfig(; warmup = 800, refit_every = 100, kwargs.
         stamps = [record.as_of for record in report.records]
         @test issorted(stamps)
         @test allunique(stamps)
-        @test first(stamps) == examples[801].features.as_of
+        @test first(stamps) == examples[802].features.as_of
     end
 
     @testset "changing the future cannot change the past" begin
@@ -68,7 +68,7 @@ rp_config(; kwargs...) = ReplayConfig(; warmup = 800, refit_every = 100, kwargs.
             )
         end
         altered = replay(rp_factories(), tampered; config = rp_config())
-        early = cut - 800
+        early = cut - 800 - 1
         for index in 1:early
             @test altered.records[index].outcome == report.records[index].outcome
             @test mean(altered.records[index].prediction) ==
@@ -153,6 +153,51 @@ rp_config(; kwargs...) = ReplayConfig(; warmup = 800, refit_every = 100, kwargs.
         @test_throws ArgumentError ReplayRecord(
             record.prediction, record.realised_at, NaN,
         )
+    end
+
+    @testset "an outcome is not used before it has happened" begin
+        # At a horizon of one bar this is invisible: the outcome of bar t is bar t+1 and
+        # settling immediately is settling on time. At five bars it is not. Corrupting one
+        # label must leave every prediction made before that label was realised untouched,
+        # and scoring it the moment it was forecast would move the very next one.
+        horizon = 5
+        long = rp_examples(; horizon = horizon)
+        config = rp_config(horizon_bars = horizon)
+        clean = replay(rp_factories(horizon), long; config = config)
+
+        cut = 1_100
+        tampered = copy(long)
+        tampered[cut] = TrainingExample(
+            long[cut].features,
+            Label(
+                symbol = long[cut].label.symbol,
+                as_of = long[cut].label.as_of,
+                realised_at = long[cut].label.realised_at,
+                horizon_bars = horizon,
+                forward_log_return = 0.9,
+                max_adverse_excursion = -0.9,
+                max_favourable_excursion = 0.9,
+            ),
+        )
+        altered = replay(rp_factories(horizon), tampered; config = config)
+        @test length(altered) == length(clean)
+
+        settles_at = long[cut].label.realised_at
+        tampered_at = long[cut].features.as_of
+        checked = 0
+        for (left, right) in zip(altered.records, clean.records)
+            left.as_of < settles_at || break
+            # The tampered bar's own record carries the tampered outcome, which is the
+            # point of tampering. What must not move is any prediction.
+            left.as_of == tampered_at || @test left.outcome == right.outcome
+            @test mean(left.prediction) == mean(right.prediction)
+            @test var(left.prediction) == var(right.prediction)
+            checked += 1
+        end
+        # The corrupted label sits several bars before it settles, so there are predictions
+        # in between that a premature settlement would have moved.
+        @test checked > cut - 800 - horizon
+        @test any(record -> record.as_of >= settles_at, altered.records)
     end
 
     @testset "a longer horizon replays at that horizon" begin
