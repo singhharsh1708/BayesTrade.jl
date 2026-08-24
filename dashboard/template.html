@@ -1,0 +1,318 @@
+<title>BayesTrade Posterior Panel</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+:root{--ink:#EDF1F4;--slate:#F6F8FA;--raise:#FFF;--line:#D3DCE4;--text:#131B23;--mist:#5A6875;--faint:#8494A2;
+ --phos:#0E8F76;--phos-dim:#8FD9C8;--amber:#B26A00;--rose:#C7395C;--violet:#5B49C9;--ok:#0E8F76;--warn:#B26A00;--bad:#C7395C}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--ink:#0B1016;--slate:#151D26;--raise:#1B2530;--line:#26323F;
+ --text:#E6ECF2;--mist:#8A98A8;--faint:#5C6B7A;--phos:#5FE3C0;--phos-dim:#2F7A69;--amber:#FFB347;--rose:#FF6B8A;--violet:#9B8CFF;--ok:#5FE3C0;--warn:#FFB347;--bad:#FF6B8A}}
+:root[data-theme="dark"]{--ink:#0B1016;--slate:#151D26;--raise:#1B2530;--line:#26323F;--text:#E6ECF2;--mist:#8A98A8;
+ --faint:#5C6B7A;--phos:#5FE3C0;--phos-dim:#2F7A69;--amber:#FFB347;--rose:#FF6B8A;--violet:#9B8CFF;--ok:#5FE3C0;--warn:#FFB347;--bad:#FF6B8A}
+*{box-sizing:border-box}
+body{margin:0;background:var(--ink);color:var(--text);font-family:"IBM Plex Sans",system-ui,sans-serif;font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1240px;margin:0 auto;padding:30px 22px 70px}
+h1,h2,h3{font-family:"Bricolage Grotesque","IBM Plex Sans",system-ui,sans-serif;text-wrap:balance;margin:0}
+.mono{font-family:"IBM Plex Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums}
+header{display:flex;flex-wrap:wrap;gap:20px;align-items:flex-end;justify-content:space-between;margin-bottom:20px}
+.eyebrow{font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--phos)}
+h1{font-size:clamp(29px,4.4vw,50px);font-weight:800;letter-spacing:-.022em;line-height:1.03;margin-top:6px}
+.sub{color:var(--mist);max-width:64ch;font-size:15px;margin-top:8px}
+.caveat{margin:14px 0 22px;padding:11px 15px;border-left:3px solid var(--amber);background:color-mix(in srgb,var(--amber) 9%,transparent);border-radius:0 8px 8px 0;font-size:13.5px;color:var(--text)}
+.caveat b{color:var(--amber)}
+.tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
+.tab{font-family:"IBM Plex Mono",monospace;font-size:12px;letter-spacing:.05em;background:var(--slate);color:var(--mist);border:1px solid var(--line);padding:9px 15px;border-radius:9px;cursor:pointer;transition:.15s;text-align:left;display:flex;flex-direction:column;gap:2px}
+.tab b{font-size:13px;color:var(--text);letter-spacing:0}
+.tab:hover{border-color:var(--phos)}
+.tab[aria-selected="true"]{border-color:var(--phos);background:color-mix(in srgb,var(--phos) 11%,var(--slate))}
+.tab[aria-selected="true"] b{color:var(--phos)}
+.panel{background:var(--slate);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+.ph{display:flex;flex-wrap:wrap;gap:10px;align-items:baseline;justify-content:space-between;padding:15px 19px;border-bottom:1px solid var(--line)}
+.ph h2{font-size:16.5px;font-weight:600;letter-spacing:-.01em}
+.ph .note{color:var(--mist);font-size:13px;max-width:56ch}
+.body{padding:17px 19px}
+.grid{display:grid;gap:15px;margin-top:15px}
+.tiles{grid-template-columns:repeat(auto-fit,minmax(158px,1fr))}
+.tile{background:var(--slate);border:1px solid var(--line);border-radius:12px;padding:13px 15px;display:flex;flex-direction:column;gap:4px;position:relative;overflow:hidden}
+.tile::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--v,var(--line))}
+.tile .k{font-family:"IBM Plex Mono",monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint)}
+.tile .v{font-family:"IBM Plex Mono",monospace;font-size:24px;font-weight:600;letter-spacing:-.02em}
+.tile .c{font-size:12.5px;color:var(--mist);line-height:1.4}
+.tile.good{--v:var(--ok)}.tile.warn{--v:var(--warn)}.tile.info{--v:var(--violet)}.tile.bad{--v:var(--bad)}
+canvas{display:block;width:100%;touch-action:none}
+#ridge{height:clamp(300px,44vh,440px);cursor:grab}#ridge:active{cursor:grabbing}
+#equity{height:230px;cursor:crosshair}
+#post{height:190px}
+#stage{position:relative;background:radial-gradient(120% 90% at 50% 0%,color-mix(in srgb,var(--phos) 7%,transparent),transparent 62%),var(--slate)}
+.hint{position:absolute;left:19px;bottom:12px;font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--faint);pointer-events:none}
+.akey{position:absolute;right:19px;bottom:12px;display:flex;gap:15px;font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--faint)}
+.akey b{color:var(--mist);font-weight:500}
+.controls{display:flex;flex-wrap:wrap;gap:9px;padding:11px 19px;border-top:1px solid var(--line);align-items:center}
+button{font-family:"IBM Plex Mono",monospace;font-size:12px;letter-spacing:.05em;text-transform:uppercase;background:var(--raise);color:var(--text);border:1px solid var(--line);padding:7px 12px;border-radius:7px;cursor:pointer;transition:.15s}
+button:hover{border-color:var(--phos);color:var(--phos)}
+button[aria-pressed="true"]{border-color:var(--phos);color:var(--phos);background:color-mix(in srgb,var(--phos) 12%,var(--raise))}
+button:focus-visible,input:focus-visible{outline:2px solid var(--phos);outline-offset:2px}
+.two{grid-template-columns:1.25fr .75fr}@media (max-width:900px){.two{grid-template-columns:1fr}}
+.three{grid-template-columns:1fr 1fr 1fr}@media (max-width:900px){.three{grid-template-columns:1fr}}
+table{width:100%;border-collapse:collapse;font-family:"IBM Plex Mono",monospace;font-size:13px;font-variant-numeric:tabular-nums}
+th{text-align:left;font-weight:500;font-size:10px;letter-spacing:.13em;text-transform:uppercase;color:var(--faint);padding:0 0 8px}
+td{padding:6px 0;border-top:1px solid var(--line)}
+td.num,th.num{text-align:right}
+.bar{height:6px;border-radius:3px;background:var(--line);overflow:hidden;min-width:60px}
+.bar i{display:block;height:100%;border-radius:3px;background:var(--phos)}
+.cov{display:flex;flex-direction:column;gap:8px}
+.covr{display:grid;grid-template-columns:48px 1fr 62px;gap:10px;align-items:center;font-family:"IBM Plex Mono",monospace;font-size:12px}
+.covt{position:relative;height:19px;background:var(--raise);border-radius:5px;overflow:hidden}
+.covt i{position:absolute;top:0;bottom:0;left:0;background:color-mix(in srgb,var(--phos) 34%,transparent)}
+.covt s{position:absolute;top:0;bottom:0;width:2px;background:var(--mist);text-decoration:none}
+.scrub{display:flex;align-items:center;gap:12px;padding:11px 19px;border-top:1px solid var(--line)}
+input[type=range]{flex:1;accent-color:var(--phos)}
+.detail{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px 18px;margin-top:12px}
+.dk{font-family:"IBM Plex Mono",monospace;font-size:10px;letter-spacing:.13em;text-transform:uppercase;color:var(--faint)}
+.dv{font-family:"IBM Plex Mono",monospace;font-size:16px;font-weight:600}
+.verdict{display:inline-flex;align-items:center;gap:7px;font-family:"IBM Plex Mono",monospace;font-size:12px;letter-spacing:.07em;text-transform:uppercase;padding:5px 11px;border-radius:999px;border:1px solid currentColor}
+.v-buy{color:var(--ok)}.v-sell{color:var(--violet)}.v-no{color:var(--amber)}
+.reasons{display:flex;flex-direction:column;gap:7px}
+.reason{display:flex;justify-content:space-between;gap:14px;font-family:"IBM Plex Mono",monospace;font-size:13px;padding:8px 12px;background:var(--raise);border-radius:8px;border-left:3px solid var(--amber)}
+.reason.gate{border-left-color:var(--violet)}
+p.lead{color:var(--mist);margin:0 0 13px;max-width:64ch}
+footer{margin-top:32px;padding-top:17px;border-top:1px solid var(--line);color:var(--faint);font-size:12.5px;display:flex;flex-wrap:wrap;gap:8px 20px;justify-content:space-between}
+code{font-family:"IBM Plex Mono",monospace;font-size:.92em;color:var(--phos)}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+
+<div class="wrap">
+<header>
+  <div>
+    <span class="eyebrow">BayesTrade &middot; full pipeline replay</span>
+    <h1>Every forecast is a distribution.</h1>
+    <p class="sub">Ticks become bars, bars become three posteriors, the posteriors are pooled, a risk engine rules on the result, and a broker charges for every fill. This is that pipeline run end to end on two markets.</p>
+  </div>
+</header>
+
+<div class="caveat"><b>Synthetic data.</b> Both markets come from generators, so the edge in the first one was put there on purpose and is far stronger than anything a real market offers. What this demonstrates is that the machinery works and that the discipline holds &mdash; not that the strategy makes money.</div>
+
+<div class="tabs" id="tabs" role="tablist"></div>
+
+<div class="grid two">
+  <section class="panel">
+    <div class="ph"><h2>Equity, after costs</h2><span class="note" id="eq-note"></span></div>
+    <canvas id="equity" aria-label="Equity curve"></canvas>
+    <div class="scrub">
+      <span class="mono" style="color:var(--faint);font-size:11px">BAR</span>
+      <input type="range" id="slider" min="0" value="0" aria-label="Select a bar">
+      <span class="mono" id="slider-t" style="min-width:92px;text-align:right"></span>
+    </div>
+  </section>
+  <section class="panel">
+    <div class="ph"><h2>That bar's posterior</h2><span class="note">and what the engine did with it</span></div>
+    <canvas id="post" aria-label="Predictive density for the selected bar"></canvas>
+    <div class="body" style="padding-top:0">
+      <div id="verdict-wrap"></div>
+      <div class="detail" id="detail"></div>
+    </div>
+  </section>
+</div>
+
+<div class="grid tiles" id="tiles"></div>
+
+<section class="panel" style="margin-top:15px">
+  <div class="ph"><h2>Posterior ridge</h2><span class="note">Every ribbon is one bar's predictive density. Drag to orbit.</span></div>
+  <div id="stage">
+    <canvas id="ridge" aria-label="Three-dimensional ridge of predictive densities"></canvas>
+    <span class="hint">drag to orbit &middot; scroll to zoom</span>
+    <div class="akey"><span><b>x</b> time</span><span><b>y</b> return</span><span><b>z</b> density</span></div>
+  </div>
+  <div class="controls">
+    <button id="spin" aria-pressed="true">Auto-orbit</button>
+    <button id="v-front">Front</button><button id="v-iso">Isometric</button><button id="v-top">Top</button>
+    <button id="t-out" aria-pressed="true">Realised outcomes</button>
+  </div>
+</section>
+
+<div class="grid three">
+  <section class="panel">
+    <div class="ph"><h2>Calibration</h2></div>
+    <div class="body">
+      <p class="lead">Does a 90% interval contain the outcome 90% of the time? No Sharpe ratio would reveal it if not.</p>
+      <div class="cov" id="cov"></div>
+    </div>
+  </section>
+  <section class="panel">
+    <div class="ph"><h2>Model reliability</h2></div>
+    <div class="body">
+      <p class="lead">Earned prequentially: scored on a bar before that bar updates anything.</p>
+      <table><thead><tr><th>Model</th><th>Weight</th><th class="num">Share</th></tr></thead><tbody id="rel"></tbody></table>
+    </div>
+  </section>
+  <section class="panel">
+    <div class="ph"><h2>Why it said no</h2></div>
+    <div class="body">
+      <p class="lead">Declining is a first-class outcome. Every refusal names its gate.</p>
+      <div class="reasons" id="reasons"></div>
+    </div>
+  </section>
+</div>
+
+<footer>
+  <span>Payload from <code>dashboard_payload()</code> &middot; no Julia type crosses this line.</span>
+  <span>Calibration and refusals lead because they say whether an equity curve means anything.</span>
+</footer>
+</div>
+
+<script>
+const DATA = /*__DATA__*/null;
+const $=s=>document.querySelector(s), pc=(x,d=2)=>(x*100).toFixed(d)+"%";
+let S=DATA.scenarios[0], sel=0;
+
+/* ---- tabs ---- */
+$("#tabs").innerHTML=DATA.scenarios.map((s,i)=>
+ `<button class="tab" role="tab" aria-selected="${i===0}" data-i="${i}"><b>${s.key==="edge"?"Real edge":"Pure noise"}</b><span>${s.symbol} &middot; ${s.n_scored.toLocaleString()} bars &middot; ${s.trades.toLocaleString()} trades</span></button>`).join("");
+$("#tabs").onclick=e=>{const b=e.target.closest(".tab"); if(!b)return;
+  [...document.querySelectorAll(".tab")].forEach(t=>t.setAttribute("aria-selected",String(t===b)));
+  S=DATA.scenarios[+b.dataset.i]; sel=Math.min(sel,S.rows.length-1); render(); };
+
+/* ---- canvas helper ---- */
+function fit(c){const d=Math.min(devicePixelRatio||1,2); c.width=c.clientWidth*d; c.height=c.clientHeight*d; return [c.getContext("2d"),c.width,c.height,d];}
+const css=v=>getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+
+/* ---- equity ---- */
+function drawEquity(){
+  const [x,w,h,d]=fit($("#equity")); const R=S.rows, n=R.length;
+  const eq=R.map(r=>r.eq), lo=Math.min(...eq), hi=Math.max(...eq), pad=(hi-lo)*0.12||1;
+  const X=i=>18*d+i/(n-1)*(w-36*d), Y=v=>h-24*d-(v-lo+pad)/((hi-lo)+2*pad)*(h-40*d);
+  x.clearRect(0,0,w,h);
+  x.strokeStyle=css("--line"); x.lineWidth=1*d; x.globalAlpha=.55;
+  for(let g=0;g<=3;g++){const yy=24*d+g*(h-48*d)/3; x.beginPath(); x.moveTo(18*d,yy); x.lineTo(w-18*d,yy); x.stroke();}
+  x.globalAlpha=1;
+  const base=R[0].eq;
+  x.setLineDash([4*d,4*d]); x.strokeStyle=css("--faint"); x.beginPath(); x.moveTo(18*d,Y(base)); x.lineTo(w-18*d,Y(base)); x.stroke(); x.setLineDash([]);
+  x.beginPath(); x.moveTo(X(0),Y(eq[0])); for(let i=1;i<n;i++)x.lineTo(X(i),Y(eq[i]));
+  x.lineTo(X(n-1),h); x.lineTo(X(0),h); x.closePath();
+  x.fillStyle=css("--phos"); x.globalAlpha=.10; x.fill(); x.globalAlpha=1;
+  x.beginPath(); x.moveTo(X(0),Y(eq[0])); for(let i=1;i<n;i++)x.lineTo(X(i),Y(eq[i]));
+  x.strokeStyle=css("--phos"); x.lineWidth=1.7*d; x.stroke();
+  x.fillStyle=css("--rose"); x.globalAlpha=.55;
+  for(let i=0;i<n;i++) if(R[i].fill!==0){x.beginPath();x.arc(X(i),Y(eq[i]),1.5*d,0,6.283);x.fill();}
+  x.globalAlpha=1;
+  x.strokeStyle=css("--amber"); x.lineWidth=1.3*d; x.beginPath(); x.moveTo(X(sel),16*d); x.lineTo(X(sel),h-16*d); x.stroke();
+  x.fillStyle=css("--faint"); x.font=`${11*d}px "IBM Plex Mono",monospace`;
+  x.fillText(R[0].t,18*d,h-7*d); x.textAlign="right"; x.fillText(R[n-1].t,w-18*d,h-7*d); x.textAlign="left";
+}
+$("#equity").addEventListener("pointerdown",e=>pick(e));
+$("#equity").addEventListener("pointermove",e=>{if(e.buttons)pick(e)});
+function pick(e){const r=$("#equity").getBoundingClientRect(); const f=(e.clientX-r.left)/r.width;
+  sel=Math.max(0,Math.min(S.rows.length-1,Math.round(f*(S.rows.length-1)))); $("#slider").value=sel; detail(); drawEquity();}
+$("#slider").oninput=e=>{sel=+e.target.value; detail(); drawEquity();};
+
+/* ---- posterior detail ---- */
+function drawPost(){
+  const [x,w,h,d]=fit($("#post")); const r=S.rows[sel];
+  x.clearRect(0,0,w,h);
+  const g0=-0.09,g1=0.09, X=v=>18*d+(v-g0)/(g1-g0)*(w-36*d);
+  const t=(v)=>Math.exp(-0.5*Math.pow((v-r.mean)/r.sd,2));
+  const pts=[]; for(let i=0;i<=120;i++){const v=g0+(g1-g0)*i/120; pts.push([X(v),t(v)]);}
+  const mx=Math.max(...pts.map(p=>p[1]));
+  const Y=z=>h-26*d-z/mx*(h-50*d);
+  x.beginPath(); x.moveTo(X(r.lo),h-26*d);
+  for(const p of pts) if(p[0]>=X(r.lo)&&p[0]<=X(r.hi)) x.lineTo(p[0],Y(p[1]));
+  x.lineTo(X(r.hi),h-26*d); x.closePath(); x.fillStyle=css("--phos"); x.globalAlpha=.18; x.fill(); x.globalAlpha=1;
+  x.beginPath(); x.moveTo(pts[0][0],Y(pts[0][1])); for(const p of pts)x.lineTo(p[0],Y(p[1]));
+  x.strokeStyle=css("--phos"); x.lineWidth=1.8*d; x.stroke();
+  x.strokeStyle=css("--faint"); x.lineWidth=1*d; x.beginPath(); x.moveTo(X(0),18*d); x.lineTo(X(0),h-26*d); x.stroke();
+  x.strokeStyle=css("--rose"); x.lineWidth=2*d; x.beginPath(); x.moveTo(X(r.out),20*d); x.lineTo(X(r.out),h-26*d); x.stroke();
+  x.fillStyle=css("--rose"); x.font=`${10*d}px "IBM Plex Mono",monospace`; x.fillText("realised",X(r.out)+4*d,28*d);
+  x.fillStyle=css("--faint"); x.textAlign="center";
+  for(const v of [-0.06,-0.03,0,0.03,0.06]) x.fillText((v*100).toFixed(0)+"%",X(v),h-9*d);
+  x.textAlign="left";
+}
+function detail(){
+  const r=S.rows[sel]; $("#slider-t").textContent=r.t;
+  const cls=r.act==="buy"?"v-buy":r.act==="sell"?"v-sell":"v-no";
+  $("#verdict-wrap").innerHTML=`<span class="verdict ${cls}">${r.act.replace("_"," ")}${r.why?" &middot; "+r.why.replace(/_/g," "):""}</span>`;
+  const f=[["P(up)",pc(r.pup,1)],["Mean",pc(r.mean,3)],["Spread",pc(r.sd,2)],
+    ["5&ndash;95%",pc(r.lo,2)+" / "+pc(r.hi,2)],["Realised",pc(r.out,3)],
+    ["Reducible",pc(r.epi,1)],["Requested",pc(r.req,3)],["Approved",pc(r.app,3)]];
+  $("#detail").innerHTML=f.map(([k,v])=>`<div><div class="dk">${k}</div><div class="dv">${v}</div></div>`).join("");
+  drawPost();
+}
+
+/* ---- tiles / cov / rel / reasons ---- */
+function panels(){
+  const c=S.calibration, up=S.return_pct>=0;
+  $("#eq-note").textContent=`${S.symbol} · ${S.trades.toLocaleString()} fills · slippage and commission charged`;
+  $("#tiles").innerHTML=[
+    {k:"Return, after costs",v:(up?"+":"")+S.return_pct.toFixed(2)+"%",c:"Slippage and commission on every fill.",cls:S.trades===0?"info":(up?"good":"bad")},
+    {k:"Trades",v:S.trades.toLocaleString(),c:`of ${S.n_scored.toLocaleString()} scored bars`,cls:"info"},
+    {k:"Interval error",v:pc(c.interval_error,2),c:"Promised coverage minus delivered.",cls:c.interval_error<0.02?"good":"warn"},
+    {k:"PIT KS",v:c.ks.toFixed(3),c:"Distance of the transform from uniform.",cls:c.ks<0.05?"good":"warn"},
+    {k:"Mean log score",v:c.log_score.toFixed(3),c:"Higher is sharper, given calibration holds.",cls:"info"},
+    {k:"Brier",v:c.brier.toFixed(3),c:"0.25 is a coin.",cls:"info"},
+  ].map(t=>`<div class="tile ${t.cls}"><span class="k">${t.k}</span><span class="v">${t.v}</span><span class="c">${t.c}</span></div>`).join("");
+  $("#cov").innerHTML=c.coverage.map(p=>{const d=p.empirical-p.level;
+    const col=Math.abs(d)<0.02?"var(--ok)":Math.abs(d)<0.05?"var(--warn)":"var(--bad)";
+    return `<div class="covr"><span style="color:var(--mist)">${pc(p.level,0)}</span>
+      <span class="covt"><i style="width:${p.empirical*100}%"></i><s style="left:${p.level*100}%"></s></span>
+      <span style="text-align:right;color:${col}">${d>=0?"+":""}${pc(d,1)}</span></div>`;}).join("");
+  const mw=Math.max(...S.reliabilities);
+  $("#rel").innerHTML=S.models.map((m,i)=>`<tr><td style="text-transform:capitalize">${m}</td>
+    <td><span class="bar"><i style="width:${S.reliabilities[i]/mw*100}%"></i></span></td>
+    <td class="num">${pc(S.reliabilities[i],1)}</td></tr>`).join("");
+  const rs=Object.entries(S.reasons).sort((a,b)=>b[1]-a[1]).map(([k,v])=>
+    `<div class="reason"><span>${k.replace(/_/g," ")}</span><b>${v.toLocaleString()}</b></div>`);
+  const gs=Object.entries(S.gates).sort((a,b)=>b[1]-a[1]).map(([k,v])=>
+    `<div class="reason gate"><span>risk gate &middot; ${k.replace(/_/g," ")}</span><b>${v.toLocaleString()}</b></div>`);
+  $("#reasons").innerHTML=[...rs,...gs].join("")||`<div class="reason">nothing declined</div>`;
+}
+
+/* ---- 3D ridge ---- */
+const cv=$("#ridge"); let yaw=-.62,pitch=.42,zoom=1,spin=!matchMedia("(prefers-reduced-motion: reduce)").matches,showOut=true;
+if(!spin)$("#spin").setAttribute("aria-pressed","false");
+function proj(x,y,z,w,h){const cy=Math.cos(yaw),sy=Math.sin(yaw),cp=Math.cos(pitch),sp=Math.sin(pitch);
+  const X=x*cy-y*sy, Y=x*sy+y*cy, Y2=Y*cp-z*sp, Z2=Y*sp+z*cp, d=3, s=d/(d+Y2);
+  return [w/2+X*s*w*.34*zoom, h*.60-Z2*s*h*.44*zoom, s];}
+function drawRidge(){
+  const [x,w,h,d]=[cv.getContext("2d"),cv.width,cv.height,Math.min(devicePixelRatio||1,2)];
+  x.clearRect(0,0,w,h);
+  const N=S.ridge.length,M=S.grid.length,zMax=Math.max(...S.ridge.map(r=>Math.max(...r)));
+  const phos=css("--phos"),dim=css("--phos-dim"),rose=css("--rose");
+  x.strokeStyle=css("--line");x.lineWidth=1*d;x.globalAlpha=.5;
+  for(let g=0;g<=6;g++){const t=-1+2*g/6;let p=proj(t,-1,0,w,h);x.beginPath();x.moveTo(p[0],p[1]);p=proj(t,1,0,w,h);x.lineTo(p[0],p[1]);x.stroke();
+    p=proj(-1,t,0,w,h);x.beginPath();x.moveTo(p[0],p[1]);p=proj(1,t,0,w,h);x.lineTo(p[0],p[1]);x.stroke();}
+  x.globalAlpha=1;
+  const ord=[];for(let i=0;i<N;i++)ord.push([i,proj(-1+2*i/(N-1),0,0,w,h)[2]]);
+  ord.sort((a,b)=>a[1]-b[1]);
+  for(const [i] of ord){
+    const xx=-1+2*i/(N-1),row=S.ridge[i],pts=[];
+    for(let j=0;j<M;j++)pts.push(proj(xx,-1+2*j/(M-1),row[j]/zMax*.85,w,h));
+    const a=Math.max(.10,Math.min(.92,(pts[0][2]-.55)*2.6));
+    x.beginPath();x.moveTo(pts[0][0],pts[0][1]);for(let j=1;j<M;j++)x.lineTo(pts[j][0],pts[j][1]);
+    const e=proj(xx,1,0,w,h),s0=proj(xx,-1,0,w,h);x.lineTo(e[0],e[1]);x.lineTo(s0[0],s0[1]);x.closePath();
+    x.fillStyle=dim;x.globalAlpha=a*.30;x.fill();
+    x.beginPath();x.moveTo(pts[0][0],pts[0][1]);for(let j=1;j<M;j++)x.lineTo(pts[j][0],pts[j][1]);
+    x.globalAlpha=a;x.strokeStyle=phos;x.lineWidth=1.15*d;x.stroke();
+    if(showOut){const ri=S.ridge_idx[i],o=S.rows[ri]?S.rows[ri].out:null;
+      if(o!==null){const gy=(o-S.grid[0])/(S.grid[M-1]-S.grid[0]);
+        if(gy>=0&&gy<=1){const p=proj(xx,-1+2*gy,.02,w,h);x.globalAlpha=a*.85;x.fillStyle=rose;
+          x.beginPath();x.arc(p[0],p[1],1.7*d,0,6.283);x.fill();}}}
+  }
+  x.globalAlpha=1;
+}
+function loop(){if(spin)yaw+=.0022; drawRidge(); requestAnimationFrame(loop);}
+let drag=null;
+cv.addEventListener("pointerdown",e=>{drag={x:e.clientX,y:e.clientY,yaw,pitch};cv.setPointerCapture(e.pointerId)});
+cv.addEventListener("pointermove",e=>{if(!drag)return;yaw=drag.yaw+(e.clientX-drag.x)*.006;pitch=Math.max(-.25,Math.min(1.25,drag.pitch+(e.clientY-drag.y)*.005))});
+cv.addEventListener("pointerup",()=>drag=null);
+cv.addEventListener("wheel",e=>{e.preventDefault();zoom=Math.max(.55,Math.min(2.2,zoom*(e.deltaY>0?.93:1.07)))},{passive:false});
+$("#spin").onclick=e=>{spin=!spin;e.target.setAttribute("aria-pressed",String(spin))};
+$("#t-out").onclick=e=>{showOut=!showOut;e.target.setAttribute("aria-pressed",String(showOut))};
+$("#v-front").onclick=()=>{yaw=0;pitch=.05;spin=false;$("#spin").setAttribute("aria-pressed","false")};
+$("#v-iso").onclick=()=>{yaw=-.62;pitch=.42;spin=false;$("#spin").setAttribute("aria-pressed","false")};
+$("#v-top").onclick=()=>{yaw=0;pitch=1.24;spin=false;$("#spin").setAttribute("aria-pressed","false")};
+
+function render(){$("#slider").max=S.rows.length-1;$("#slider").value=sel;
+  panels();detail();drawEquity();fit(cv);drawRidge();}
+addEventListener("resize",()=>{render()});
+new MutationObserver(()=>render()).observe(document.documentElement,{attributes:true,attributeFilter:["data-theme"]});
+render(); loop();
+</script>

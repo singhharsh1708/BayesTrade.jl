@@ -1,59 +1,62 @@
 # Dashboard
 
-A single self-contained page. It reads a JSON payload produced by
-`dashboard_payload()` and draws it; no Julia type crosses that line, so this
-can be rewritten in anything or thrown away without touching a line of code
-that decides a trade.
+A single self-contained page fed by a JSON payload. No Julia type crosses that
+line, so this can be rewritten in anything or deleted without touching a line of
+code that decides a trade.
 
-## Regenerating the payload
-
-```julia
-using BayesTrade, Dates
-
-report  = replay(factories, examples; config = ReplayConfig(warmup = 800))
-payload = dashboard_payload(
-    report;
-    book = portfolio(broker; as_of = now_bar),
-    sector = "energy",
-    generated_at = now_bar,
-)
-write_dashboard(payload, "dashboard/payload.json")
-```
-
-`index.html` currently inlines a downsampled payload so the page opens with no
-server at all. The full payload for a 1778-bar replay is about 1.5 MB, which is
-fine over HTTP and wasteful inline, so the inlined copy carries every aggregate
-and roughly 300 of the series points.
-
-## What it shows, and why those things
-
-The hero is 297 predictive distributions drawn as a ridge in time, return and
-density. That is the system's actual output: it never emits a price target, it
-emits a shape, and the shape is what the risk engine rules on.
-
-Everything below the ridge is the uncomfortable half. Any dashboard can draw an
-equity curve. This one leads with calibration, model disagreement, the share of
-each prediction that is reducible uncertainty, and every refusal with its gate
-named, because those are the numbers that say whether an equity curve means
-anything at all.
-
-The current replay declines on every single bar. That is the correct answer on
-a generator with no exploitable drift, and the page says so rather than showing
-an empty blotter.
-
-## Deploying
-
-The page is static, so any file host works. It currently sits on Vercel:
+## One command
 
 ```sh
-cd dashboard && vercel deploy --prod
+./deploy.sh           # replay, rebuild, publish
+./deploy.sh --local   # replay and rebuild only
 ```
 
-`.vercel/` holds the project link and is ignored; deleting it means the next
-deploy creates a new project rather than updating this one.
+Three steps, each usable on its own:
+
+| Step | What it does |
+| --- | --- |
+| `generate.jl` | replays the full pipeline and writes `payload.json` |
+| `build.jl` | folds the payload into `template.html`, writes `index.html` |
+| `vercel deploy` | publishes it |
+
+The output is reproducible: running it twice on unchanged code produces a
+byte-identical `index.html`. `build.jl` refuses a payload that is missing, empty
+or not a JSON object, so a broken run fails loudly instead of publishing a page
+with no numbers in it.
+
+## Why a template and a payload rather than one file
+
+`index.html` is around 850 kB because the data is baked in, and a file that size
+is not something anyone can edit. `template.html` is 22 kB of page and
+`payload.json` is the rest, and each is editable on its own. Only the built
+artefact is large, and it is regenerated rather than hand-maintained.
+
+## What it draws
+
+Two scenarios, chosen so the page shows both halves of the system's behaviour:
+
+- **Real edge** — returns carrying genuine one-bar autocorrelation. The system
+  finds it, trades it, and pays every cost.
+- **Pure noise** — regime-switching returns with no exploitable drift. The system
+  declines every single bar.
+
+Showing only the second makes the system look inert; showing only the first makes
+it look like a backtest. Together they are the actual claim: it trades what is
+there and refuses what is not.
+
+Both markets come from generators, so the edge in the first was put there on
+purpose and is far stronger than anything real. The page says so at the top,
+because an interviewer will ask and the answer is better volunteered than
+extracted.
+
+The hero is the system's actual output rather than a price line: every bar's
+predictive density, drawn as a ridge in time, return and density. Beneath it sit
+calibration, model disagreement, the reducible share of each prediction, and
+every refusal with its gate named — the numbers that say whether an equity curve
+means anything.
 
 ## Not yet
 
-There is no HTTP server on the Julia side, so the page reads a file rather than
-an endpoint. When one exists, the only change here is where the payload comes
-from.
+No HTTP server on the Julia side, so the page carries a payload rather than
+polling an endpoint. When a server exists the only change is where the payload
+comes from.
