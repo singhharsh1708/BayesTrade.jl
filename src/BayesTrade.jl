@@ -73,6 +73,7 @@ include("kite/protocol.jl")
 include("kite/session.jl")
 include("backtest/replay.jl")
 include("report/dashboard.jl")
+include("session/paper.jl")
 
 export TradingMode, BACKTEST, PAPER, LIVE, is_simulated
 export Action, BUY, SELL, HOLD, NO_TRADE, is_actionable
@@ -207,6 +208,9 @@ export credentials_from_env, login_url, session_checksum, is_authenticated
 export authorisation, build_request, kite_call, authenticate!, kite_quote, order_params
 
 export dashboard_payload, write_dashboard, DASHBOARD_SCHEMA_VERSION
+
+export PaperTradingSession, SessionCounters, SESSION_SCHEMA_VERSION
+export on_tick!, on_bar!, close_bar!, session_report, record!
 
 export FeatureScaler, fit_scaler, transform, transform_row, unscale_coefficients
 export BayesianReturnModel, HorizonMismatchError, design_columns, response_scale

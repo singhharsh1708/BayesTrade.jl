@@ -43,6 +43,7 @@ using Test
     include("test_feed.jl")
     include("test_dashboard.jl")
     include("test_kite.jl")
+    include("test_session.jl")
     include("test_calibration.jl")
     include("test_walk_forward.jl")
     include("test_persistence.jl")

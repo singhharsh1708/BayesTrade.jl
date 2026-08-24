@@ -18,7 +18,7 @@ tests pass in CI and the capability is reachable from the CLI or the API.
 | 11 | Live market feed and tick aggregation | done |
 | 12 | Dashboard payload (JSON contract; no page in-tree) | done |
 | 13 | Zerodha Kite: binary tick protocol and REST client | done (no live credentials) |
-| 14 | Extended paper trading | pending |
+| 14 | Extended paper trading | harness built; needs weeks of live running |
 | 15 | Small live capital, only if 14 justifies it | pending |
 
 ## Definition of done for the MVP
