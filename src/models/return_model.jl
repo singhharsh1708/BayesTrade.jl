@@ -151,8 +151,16 @@ function fit!(model::BayesianReturnModel, observations::AbstractVector{TrainingE
             response_scale(model, example.features)
     end
 
-    model.scaler = fit_scaler(model.feature_names, raw)
-    fit!(model.regression, build_design(model, raw), responses)
+    # The scaler is built and the design validated before either is installed. Assigning
+    # the scaler first would leave a window the regression goes on to refuse having already
+    # replaced the standardisation the current posterior was fitted under, so a refused
+    # refit would change what the model predicts.
+    scaler = fit_scaler(model.feature_names, raw)
+    design = build_design(model, raw, scaler)
+    all(isfinite, responses) || throw(ArgumentError("responses must be finite"))
+
+    model.scaler = scaler
+    fit!(model.regression, design, responses)
 
     stamps = DateTime[example.features.as_of for example in observations]
     return mark_fitted!(
@@ -344,6 +352,12 @@ end
 function build_design(model::BayesianReturnModel, raw::Matrix{Float64})
     scaler = model.scaler
     scaler === nothing && throw(NotFittedError("BayesianReturnModel"))
+    return build_design(model, raw, scaler)
+end
+
+function build_design(
+        ::BayesianReturnModel, raw::Matrix{Float64}, scaler::FeatureScaler,
+    )
     scaled = transform(scaler, raw)
     design = Matrix{Float64}(undef, Base.size(scaled, 1), Base.size(scaled, 2) + 1)
     for row in 1:Base.size(scaled, 1)

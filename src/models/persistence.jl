@@ -42,19 +42,10 @@ function save_model(model::BayesianReturnModel, path::AbstractString)
     scaler = model.scaler
     scaler === nothing && throw(ArgumentError("refusing to save an unfitted model"))
 
-    version = model_version(model)
     prior = model.regression.prior
     bundle = Dict{String, Any}(
         "schema" => MODEL_SCHEMA_VERSION,
-        "model" => Dict{String, Any}(
-            "name" => slug(version.name),
-            "version" => string(version.version),
-            "params_hash" => version.params_hash,
-            "fitted_at" => stamp(version.fitted_at),
-            "train_start" => stamp(version.train_start),
-            "train_end" => stamp(version.train_end),
-            "n_observations" => n_observations(model),
-        ),
+        "model" => model_block(model),
         "config" => Dict{String, Any}(
             "feature_names" => String[string(name) for name in model.feature_names],
             "horizon_bars" => model.horizon_bars,
@@ -70,6 +61,66 @@ function save_model(model::BayesianReturnModel, path::AbstractString)
         "state" => state(model.regression),
     )
 
+    return write_bundle(bundle, path)
+end
+
+"""
+    save_model(model, path)
+
+Write a fitted volatility model to `path`.
+
+The statistics are stored, not the posterior, for the same reason the return model's are: a
+saved model that cannot absorb tomorrow's bar is not much of a saved model. The discount grid
+and the prior go in the configuration block beside them, since a set of statistics means
+nothing without the grid they were accumulated under.
+"""
+function save_model(model::BayesianVolatilityModel, path::AbstractString)
+    is_fitted(model) || throw(ArgumentError("refusing to save an unfitted model"))
+
+    filter = model.filter
+    bundle = Dict{String, Any}(
+        "schema" => MODEL_SCHEMA_VERSION,
+        "model" => model_block(model),
+        "config" => Dict{String, Any}(
+            "source" => source_name(model.source),
+            "columns" => String[string(name) for name in feature_names(model)],
+            "horizon_bars" => model.horizon_bars,
+            "discounts" => copy(filter.discounts),
+            "weight_forgetting" => filter.weight_forgetting,
+            "centre" => filter.centre,
+            "prior" => Dict{String, Any}(
+                "shape" => filter.prior.shape,
+                "rate" => filter.prior.rate,
+            ),
+        ),
+        "state" => state(filter),
+    )
+    return write_bundle(bundle, path)
+end
+
+"""
+    model_block(model)
+
+The identity block every bundle carries, whatever kind of model wrote it.
+
+`name` has been written since schema 1 and was never read back. Reading it is what lets a
+second model type share the format without a schema bump, so every file already on disk keeps
+loading.
+"""
+function model_block(model::ProbabilisticModel)
+    version = model_version(model)
+    return Dict{String, Any}(
+        "name" => slug(version.name),
+        "version" => string(version.version),
+        "params_hash" => version.params_hash,
+        "fitted_at" => stamp(version.fitted_at),
+        "train_start" => stamp(version.train_start),
+        "train_end" => stamp(version.train_end),
+        "n_observations" => n_observations(model),
+    )
+end
+
+function write_bundle(bundle::Dict{String, Any}, path::AbstractString)
     mkpath(dirname(abspath(path)))
     open(path, "w") do handle
         JSON3.pretty(handle, bundle)
@@ -113,8 +164,16 @@ function load_model(path::AbstractString)
     )
 
     model = try
-        build_from_bundle(bundle)
+        stored_name = bundle_text(bundle_object(bundle, "model"), "name")
+        if stored_name == "momentum"
+            build_return_model(bundle)
+        elseif stored_name == "volatility"
+            build_volatility_model(bundle)
+        else
+            throw(ModelFileError(string(path, ": unknown model \"", stored_name, "\"")))
+        end
     catch error
+        error isa ModelFileError && rethrow()
         (
             error isa KeyError || error isa ArgumentError || error isa MethodError ||
                 error isa InexactError || error isa TypeError
@@ -259,7 +318,7 @@ function bundle_moment(bundle::AbstractDict, name::String)
     end
 end
 
-function build_from_bundle(bundle::AbstractDict)
+function build_return_model(bundle::AbstractDict)
     config = bundle_object(bundle, "config")
     prior_bundle = bundle_object(config, "prior")
     scaler_bundle = bundle_object(bundle, "scaler")
@@ -293,6 +352,53 @@ function build_from_bundle(bundle::AbstractDict)
             "yy" => bundle_number(saved, "yy"),
             "weight" => bundle_number(saved, "weight"),
             "n_seen" => bundle_whole(saved, "n_seen"),
+        ),
+        n_observations = bundle_whole(stored, "n_observations"),
+        fitted_at = bundle_moment(stored, "fitted_at"),
+        train_start = bundle_moment(stored, "train_start"),
+        train_end = bundle_moment(stored, "train_end"),
+    )
+    return model
+end
+
+function build_volatility_model(bundle::AbstractDict)
+    config = bundle_object(bundle, "config")
+    prior_bundle = bundle_object(config, "prior")
+    stored = bundle_object(bundle, "model")
+    saved = bundle_object(bundle, "state")
+
+    source_kind = bundle_text(config, "source")
+    columns = bundle_names(config, "columns")
+    source = if source_kind == "squared_return"
+        length(columns) == 1 || throw(
+            ModelFileError(
+                string("a squared-return source reads one column, got ", length(columns)),
+            ),
+        )
+        SquaredReturnSource(first(columns))
+    else
+        throw(ModelFileError(string("unknown variance source \"", source_kind, "\"")))
+    end
+
+    model = BayesianVolatilityModel(
+        source;
+        horizon_bars = bundle_whole(config, "horizon_bars"),
+        discounts = bundle_numbers(config, "discounts"),
+        weight_forgetting = bundle_number(config, "weight_forgetting"),
+        centre = bundle_number(config, "centre"),
+        prior = InverseGammaPrior(
+            bundle_number(prior_bundle, "shape"), bundle_number(prior_bundle, "rate"),
+        ),
+    )
+
+    restore!(
+        model;
+        filter_state = Dict{String, Any}(
+            "weights" => bundle_numbers(saved, "weights"),
+            "squares" => bundle_numbers(saved, "squares"),
+            "log_weights" => bundle_numbers(saved, "log_weights"),
+            "n_seen" => bundle_whole(saved, "n_seen"),
+            "n_skipped" => bundle_whole(saved, "n_skipped"),
         ),
         n_observations = bundle_whole(stored, "n_observations"),
         fitted_at = bundle_moment(stored, "fitted_at"),
