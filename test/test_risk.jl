@@ -355,6 +355,19 @@ end
         @test :daily_loss in [check.name for check in failures(losing)]
     end
 
+    @testset "an account-level failure stops before the ceilings are even weighed" begin
+        # Not just the weight: the audit trail must show the engine stopped where it did.
+        # A halted account is not a smaller trade, and the checks that were never reached
+        # must not appear as though they passed.
+        halted = review(intent, rk_portfolio(), limits; sector = "energy", halted = true)
+        @test !approved(halted)
+        names = [check.name for check in halted.checks]
+        @test :kill_switch in names
+        @test :position_weight ∉ names
+        @test :sector_exposure ∉ names
+        @test :portfolio_exposure ∉ names
+    end
+
     @testset "a ceiling reduces the trade rather than refusing it" begin
         # The headroom under a limit is a trade that genuinely satisfies the limit.
         held = Dict("RELIANCE" => rk_position("RELIANCE", 0.03))

@@ -65,6 +65,7 @@ absorb a bar or skip it.
 mutable struct FeedHealth
     max_silence::Period
     last_tick_at::Union{DateTime, Nothing}
+    last_gap::Union{Period, Nothing}
     n_accepted::Int
     n_stale::Int
     n_out_of_order::Int
@@ -73,8 +74,23 @@ mutable struct FeedHealth
     function FeedHealth(; max_silence::Period = Minute(2))
         Dates.toms(max_silence) > 0 ||
             throw(ArgumentError("max_silence must be positive"))
-        return new(max_silence, nothing, 0, 0, 0, 0)
+        return new(max_silence, nothing, nothing, 0, 0, 0, 0)
     end
+end
+
+"""
+    arrived_after_silence(health)
+
+Whether the most recent tick arrived after a gap longer than the feed is allowed.
+
+Distinct from [`is_stale`](@ref), which asks whether the feed is quiet *now*. This asks whether
+it was quiet *before the tick in hand*, which is the question anything triggered by that tick
+has to ask: by then the feed looks fresh, because the tick made it so.
+"""
+function arrived_after_silence(health::FeedHealth)
+    gap = health.last_gap
+    gap === nothing && return false
+    return gap > health.max_silence
 end
 
 """
@@ -124,6 +140,11 @@ function accept!(health::FeedHealth, price::Quote)
             return :duplicate
         end
     end
+    # The gap this tick arrived after, recorded before the clock moves. Without it a
+    # staleness check that runs once the tick has been accepted can never fire: accepting
+    # the tick is what makes the feed look fresh again, so the silence that preceded it
+    # would be invisible to every check downstream.
+    health.last_gap = last === nothing ? nothing : price.timestamp - last
     health.last_tick_at = price.timestamp
     health.n_accepted += 1
     return :accepted
@@ -155,6 +176,7 @@ mutable struct BarAggregator
     symbol::String
     interval::Period
     label::String
+    hours::Union{MarketHours, Nothing}
     bucket_start::Union{DateTime, Nothing}
     open::Float64
     high::Float64
@@ -164,12 +186,15 @@ mutable struct BarAggregator
     n_ticks::Int
 
     function BarAggregator(
-            symbol::AbstractString; interval::Period = Minute(1), label::AbstractString = "1m",
+            symbol::AbstractString; interval::Period = Minute(1),
+            label::AbstractString = "1m",
+            hours::Union{MarketHours, Nothing} = nothing,
         )
         isempty(symbol) && throw(ArgumentError("an aggregator needs a symbol"))
         Dates.toms(interval) > 0 || throw(ArgumentError("interval must be positive"))
         return new(
-            String(symbol), interval, String(label), nothing, 0.0, 0.0, 0.0, 0.0, 0.0, 0,
+            String(symbol), interval, String(label), hours, nothing,
+            0.0, 0.0, 0.0, 0.0, 0.0, 0,
         )
     end
 end
@@ -212,6 +237,10 @@ function push_tick!(aggregator::BarAggregator, price::Quote)
         )
     end
 
+    # No separate session-crossing check is needed. Buckets are absolute timestamps floored
+    # to the interval, so for any interval shorter than a day two ticks on different dates
+    # can never share a bucket: the overnight gap closes the bar by arithmetic rather than
+    # by a rule that could be forgotten.
     completed = (current !== nothing && bucket > current) ? build_bar(aggregator) : nothing
     if current === nothing || bucket > current
         aggregator.bucket_start = bucket
@@ -273,10 +302,12 @@ mutable struct FeedSession
     function FeedSession(
             symbol::AbstractString; interval::Period = Minute(1),
             label::AbstractString = "1m", max_silence::Period = Minute(2),
+            hours::Union{MarketHours, Nothing} = nothing,
         )
         return new(
             String(symbol), FeedHealth(; max_silence = max_silence),
-            BarAggregator(symbol; interval = interval, label = label), Bar[],
+            BarAggregator(symbol; interval = interval, label = label, hours = hours),
+            Bar[],
         )
     end
 end
@@ -291,6 +322,10 @@ tick closed one. A rejected tick reaches the aggregator not at all, so a replaye
 cannot rewrite a bar the system has already acted on.
 """
 function handle_tick!(session::FeedSession, price::Quote)
+    # A tick for another instrument is ordinary on a socket carrying several subscriptions,
+    # and it is not this session's business. Throwing would kill a session that is meant to
+    # run unattended for weeks over an event that is not an error.
+    price.symbol == session.symbol || return :foreign, nothing
     verdict = accept!(session.health, price)
     verdict === :accepted || return verdict, nothing
     bar = push_tick!(session.aggregator, price)
