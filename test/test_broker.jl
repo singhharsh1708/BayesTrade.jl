@@ -176,16 +176,61 @@ end
         @test away.fill === nothing
         @test occursin("not reached", away.detail)
 
+        # Marketable, so it fills at the market rather than at the limit. Filling a buy at
+        # a limit above the offer would charge a price nobody was asking: the limit bounds
+        # how bad the fill may be, it is never a price to seek out.
         reachable = place_order!(
             broker, bk_order(broker; kind = LIMIT, limit = 2_600.0), bk_quote(2_500.0),
         )
         @test reachable.status === FILLED
-        @test reachable.fill.price ≈ 2_600.0
+        @test reachable.fill.price ≈ 2_500.0 * (1 + 0.0005)
+        @test reachable.fill.price < 2_600.0
+
+        # The sell side, which had no test at all: a sell limit above the market is still
+        # working, and one below it fills at the market rather than giving away the
+        # difference.
+        high_sell = place_order!(
+            broker,
+            bk_order(broker; side = SELL_SIDE, kind = LIMIT, limit = 2_600.0),
+            bk_quote(2_500.0),
+        )
+        @test high_sell.status === OPEN
+        @test high_sell.fill === nothing
+
+        low_sell = place_order!(
+            broker,
+            bk_order(broker; side = SELL_SIDE, kind = LIMIT, limit = 2_000.0),
+            bk_quote(2_500.0),
+        )
+        @test low_sell.status === FILLED
+        @test low_sell.fill.price ≈ 2_500.0 * (1 - 0.0005)
+        @test low_sell.fill.price > 2_000.0
 
         cancelled = cancel_order!(broker, away.order.id)
         @test cancelled.status === CANCELLED
         @test cancel_order!(broker, reachable.order.id).status === FILLED
         @test_throws ArgumentError cancel_order!(broker, "nope")
+    end
+
+    @testset "a stop it cannot simulate is refused, not filled at the market" begin
+        # Filling a stop at the market ignores its trigger entirely, which would make a
+        # stop look like protection it never provided.
+        broker = bk_broker()
+        for kind in (STOP_LOSS, STOP_LOSS_MARKET)
+            receipt = place_order!(
+                broker,
+                Order(
+                    id = next_order_id!(broker), symbol = "RELIANCE", side = SELL_SIDE,
+                    quantity = 10.0, order_type = kind, limit_price = 2_400.0,
+                    placed_at = DateTime(2026, 1, 2, 10),
+                ),
+                bk_quote(2_500.0),
+            )
+            @test receipt.status === REJECTED
+            @test receipt.fill === nothing
+            @test occursin("not simulated", receipt.detail)
+        end
+        @test isempty(broker.positions)
     end
 
     @testset "equity is cash plus what is held, marked to market" begin
@@ -203,6 +248,20 @@ end
         @test book.equity ≈ equity(broker)
         @test book.cash ≈ broker.cash
         @test n_positions(book) == 1
+
+        # The account's history has to survive the crossing. This is the only bridge from a
+        # broker to the two account-level gates, and defaulting both to the current equity
+        # makes drawdown and daily loss exactly zero, which is the most permissive value
+        # either can take.
+        with_history = portfolio(
+            broker; peak_equity = 2.0e6, day_start_equity = 1.5e6,
+            as_of = DateTime(2026, 1, 3),
+        )
+        @test with_history.peak_equity ≈ 2.0e6
+        @test with_history.day_start_equity ≈ 1.5e6
+        @test drawdown(with_history) > 0.4
+        @test daily_loss(with_history) > 0.2
+        @test drawdown(book) == 0.0
     end
 
     @testset "it is paper, and says so" begin

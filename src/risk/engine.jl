@@ -137,7 +137,11 @@ breached its drawdown must stop trading everything rather than stop trading one 
 
 A trade that would breach a position or sector ceiling is **reduced to the headroom** rather
 than refused outright, since a smaller trade is genuinely within the limit. A ceiling with no
-headroom left fails instead, so a refusal always names something. Account-level breaches and
+headroom left fails instead, so a refusal always names something.
+
+A trade that *unwinds* an existing position is not charged as though it were opening one. A
+long already over its ceiling has to be trimmable, or the engine locks in the breach it exists
+to prevent and refuses the only trade that would fix it. Account-level breaches and
 the kill switch refuse outright: there is no smaller version of a halted account.
 
 `sector` is not defaulted. A missing sector is `SKIPPED`, never silently passed, because a
@@ -185,6 +189,15 @@ function review(
 
     existing = position_weight(portfolio, intent.symbol)
     opening = !haskey(portfolio.positions, intent.symbol)
+    # Whether this trade unwinds what is already held. Selling against a long reduces
+    # exposure, as does buying against a short. A ceiling charged against a reducing trade
+    # locks in the very position it is supposed to limit.
+    held = get(portfolio.positions, intent.symbol, nothing)
+    reducing = held !== nothing &&
+        (
+        (intent.action === SELL && held.quantity > 0) ||
+            (intent.action === BUY && held.quantity < 0)
+    )
     push!(
         checks,
         opening ?
@@ -231,8 +244,21 @@ function review(
     # the one component whose whole purpose is being auditable afterwards.
     allowed = requested
 
+    # How much of this ceiling the trade may consume.
+    #
+    # An increasing trade adds its whole size to the exposure, so it may use the gap under
+    # the cap and no more. A reducing trade first cancels what is held and only starts
+    # adding once it has crossed through zero, so it may use twice the position it is
+    # unwinding plus whatever gap remains. Without the second case a position already over
+    # its limit can never be trimmed, because every trim is charged as though it were a
+    # purchase, and the engine refuses the only trade that would fix the breach.
+    function headroom_for(used::Float64, cap::Float64)
+        gap = max(0.0, cap - used)
+        return reducing ? 2 * existing + gap : gap
+    end
+
     function ceiling!(name::Symbol, used::Float64, cap::Float64, description::AbstractString)
-        headroom = max(0.0, cap - used)
+        headroom = headroom_for(used, cap)
         if headroom <= 0
             push!(
                 checks,

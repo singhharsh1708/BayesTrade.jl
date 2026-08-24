@@ -512,6 +512,43 @@ end
         @test crowded.approved_weight < bearish.target_weight
     end
 
+    @testset "a position over its ceiling can still be trimmed" begin
+        # The inversion this guards against: charging a reducing trade for headroom locks
+        # in the very breach the ceiling exists to prevent, and refuses the only trade that
+        # would fix it.
+        over = Dict(
+            "RELIANCE" => Position(
+                symbol = "RELIANCE", quantity = 800.0, average_price = 100.0,
+                last_price = 100.0, opened_at = DateTime(2026, 1, 1), sector = "energy",
+            ),
+        )
+        breached = rk_portfolio(positions = over)
+        @test position_weight(breached, "RELIANCE") > limits.max_position_weight
+
+        trim = decide(rk_prediction(mu = -0.03, sd = 0.02), limits)
+        @test trim.action === SELL
+        trimming = review(trim, breached, limits; sector = "energy")
+        @test approved(trimming)
+        @test trimming.approved_weight ≈ trim.target_weight
+        @test isempty(failures(trimming))
+
+        # Adding to it is still refused, which is the other half of the rule.
+        adding = review(intent, breached, limits; sector = "energy")
+        @test !approved(adding)
+        @test :position_weight in [check.name for check in failures(adding)]
+
+        # A short over its ceiling is trimmed by buying, symmetrically.
+        short = Dict(
+            "RELIANCE" => Position(
+                symbol = "RELIANCE", quantity = -800.0, average_price = 100.0,
+                last_price = 100.0, opened_at = DateTime(2026, 1, 1), sector = "energy",
+            ),
+        )
+        covering = review(intent, rk_portfolio(positions = short), limits; sector = "energy")
+        @test approved(covering)
+        @test !approved(review(trim, rk_portfolio(positions = short), limits; sector = "energy"))
+    end
+
     @testset "there is nothing to rule on when the decision declined" begin
         declined = decide(rk_prediction(mu = 0.0, sd = 0.02), limits)
         ruling = review(declined, rk_portfolio(), limits)
