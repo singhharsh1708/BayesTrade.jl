@@ -144,13 +144,27 @@ function place_order!(broker::PaperBroker, order::Order, price::Quote)
 
     if order.order_type === LIMIT
         limit = order.limit_price
-        # A limit order that the market has not reached is not a rejection, it is an order
-        # that is still working.
-        if limit !== nothing &&
-                ((is_buy(order) && executed > limit) || (!is_buy(order) && executed < limit))
-            return record(OPEN, nothing, string("limit ", limit, " not reached at ", reference))
+        if limit !== nothing
+            # A limit order the market has not reached is not a rejection, it is an order
+            # that is still working.
+            if (is_buy(order) && executed > limit) || (!is_buy(order) && executed < limit)
+                return record(
+                    OPEN, nothing, string("limit ", limit, " not reached at ", reference),
+                )
+            end
+            # Marketable, so it fills at the market rather than at the limit. A buy whose
+            # limit sits above the offer pays the offer, not the limit, and filling at the
+            # limit would charge a price nobody was asking. The limit is a bound on how bad
+            # the fill may be, never a price to seek out.
+            executed = is_buy(order) ? min(executed, limit) : max(executed, limit)
         end
-        limit === nothing || (executed = limit)
+    elseif order.order_type === STOP_LOSS || order.order_type === STOP_LOSS_MARKET
+        # Not simulated. Filling one at the market ignores its trigger entirely, which
+        # would make a stop look like protection it never provided.
+        return record(
+            REJECTED, nothing,
+            string(slug(order.order_type), " is not simulated by the paper broker"),
+        )
     end
 
     quantity = tradeable_quantity(broker.costs, order.quantity, price.volume)
