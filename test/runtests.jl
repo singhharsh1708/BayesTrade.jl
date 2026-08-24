@@ -31,6 +31,7 @@ using Test
     include("test_labels.jl")
     include("test_linear.jl")
     include("test_variance_filter.jl")
+    include("test_regime_filter.jl")
     include("test_return_model.jl")
     include("test_volatility_model.jl")
     include("test_scaled_return_model.jl")
