@@ -95,6 +95,21 @@ end
         @test mean(draws) ≈ mean(pool) atol = 0.03
     end
 
+    @testset "a component with no weight cannot poison the pool" begin
+        # A Student-t below one degree of freedom has no mean at all. Multiplying that by a
+        # weight of zero gives NaN, so a component the pool does not use would otherwise
+        # destroy every moment of one that it does.
+        wild = student_t(0.0, 0.02, 0.5)
+        @test !isfinite(mean(wild))
+        pool = OpinionPool((fu_t(0.001, 0.02), wild), [1.0, 0.0])
+        @test mean(pool) ≈ mean(fu_t(0.001, 0.02))
+        @test var(pool) ≈ var(fu_t(0.001, 0.02))
+        @test cdf(pool, 0.0) ≈ cdf(fu_t(0.001, 0.02), 0.0)
+        @test pdf(pool, 0.0) ≈ pdf(fu_t(0.001, 0.02), 0.0)
+        @test isfinite(logpdf(pool, 0.0))
+        @test disagreement(pool) ≈ 0.0
+    end
+
     @testset "a pool that is not a pool is refused" begin
         component = fu_t(0.0, 0.02)
         @test_throws ArgumentError OpinionPool((component, component), [0.5])
@@ -202,6 +217,14 @@ end
         @test_throws ArgumentError score!(reliability, [0.0])
         @test_throws ArgumentError score!(reliability, [NaN, 0.0])
         @test_throws ArgumentError score!(reliability, [-Inf, -Inf])
+        # Averaged over the bars a model answered, not the bars the replay ran.
+        counted = ModelReliability([MOMENTUM, VOLATILITY])
+        score!(counted, [log(2.0), -Inf])
+        score!(counted, [log(2.0), log(8.0)])
+        @test counted.n_scored == 2
+        @test mean_log_scores(counted)[1] ≈ log(2.0)
+        @test mean_log_scores(counted)[2] ≈ log(8.0)
+
         @test_throws ArgumentError ModelReliability(ModelName[])
         @test_throws ArgumentError ModelReliability([MOMENTUM, MOMENTUM])
         @test_throws ArgumentError ModelReliability([MOMENTUM]; forgetting = 0.0)
@@ -291,6 +314,9 @@ end
         @test_throws ArgumentError fuse(reliability, (results[2], other_symbol))
         @test_throws ArgumentError fuse(reliability, (results[2], other_time))
         @test_throws ArgumentError fuse(reliability, (results[1], results[1]))
+        @test_throws ArgumentError score_fusion!(
+            reliability, (results[1], results[1]), 0.001,
+        )
         @test_throws ArgumentError fuse(reliability, ())
         @test_throws ArgumentError fuse(ModelReliability([VOLATILITY]), (results[1],))
     end

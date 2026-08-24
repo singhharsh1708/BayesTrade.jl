@@ -173,6 +173,9 @@ function score_fusion!(
         reliability::ModelReliability, results::Tuple, outcome::Real,
     )
     realised = Float64(outcome)
+    names = ModelName[result.model.name for result in results]
+    length(unique(names)) == length(names) ||
+        throw(ArgumentError(string("two results from the same model: ", names)))
     densities = fill(-Inf, n_models(reliability))
     for result in results
         position = findfirst(==(result.model.name), reliability.names)

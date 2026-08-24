@@ -200,6 +200,65 @@ rp_config(; kwargs...) = ReplayConfig(; warmup = 800, refit_every = 100, kwargs.
         @test any(record -> record.as_of >= settles_at, altered.records)
     end
 
+    @testset "between refits the models absorb every bar" begin
+        # If update! were never called the state would be frozen between refits and every
+        # prediction would be the same number, which is a very easy thing to leave out and
+        # a very hard thing to notice from a calibration report.
+        # Asserted on the volatility model alone, and that matters: the return model reads
+        # the feature vector inside predict, so its predictive moves bar to bar whether or
+        # not it ever absorbed anything. Only a model whose prediction is a pure function
+        # of its own state can show that the state is being fed.
+        frozen_config = ReplayConfig(warmup = 800, refit_every = 10_000, horizon_bars = 1)
+        rare = replay(
+            (() -> BayesianVolatilityModel(; horizon_bars = 1),), examples;
+            config = frozen_config,
+        )
+        spreads = [std(record.prediction) for record in rare.records]
+        @test length(unique(spreads)) > length(spreads) ÷ 2
+        @test std(spreads) > 0
+
+        # It is only fitted once here, so every bit of that movement came from update!.
+        @test first(spreads) != last(spreads)
+    end
+
+    @testset "the training window never contains an unrealised label" begin
+        # Refitting every bar so a window that ran one bar too far would be used
+        # immediately. Tamper with one label and nothing decided before it settled may
+        # move, whether it moved through the weights or through a refit.
+        horizon = 5
+        long = rp_examples(; horizon = horizon)
+        config = ReplayConfig(warmup = 800, refit_every = 1, horizon_bars = horizon)
+        clean = replay(rp_factories(horizon), long; config = config)
+
+        cut = 850
+        tampered = copy(long)
+        tampered[cut] = TrainingExample(
+            long[cut].features,
+            Label(
+                symbol = long[cut].label.symbol,
+                as_of = long[cut].label.as_of,
+                realised_at = long[cut].label.realised_at,
+                horizon_bars = horizon,
+                forward_log_return = 0.9,
+                max_adverse_excursion = -0.9,
+                max_favourable_excursion = 0.9,
+            ),
+        )
+        altered = replay(rp_factories(horizon), tampered; config = config)
+
+        settles_at = long[cut].label.realised_at
+        tampered_at = long[cut].features.as_of
+        checked = 0
+        for (left, right) in zip(altered.records, clean.records)
+            left.as_of < settles_at || break
+            left.as_of == tampered_at || @test left.outcome == right.outcome
+            @test mean(left.prediction) == mean(right.prediction)
+            @test var(left.prediction) == var(right.prediction)
+            checked += 1
+        end
+        @test checked >= horizon
+    end
+
     @testset "a longer horizon replays at that horizon" begin
         long = replay(
             rp_factories(5), rp_examples(; horizon = 5);

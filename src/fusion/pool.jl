@@ -62,6 +62,10 @@ Distributions.insupport(::OpinionPool, x::Real) = isfinite(x)
 function Distributions.mean(pool::OpinionPool)
     total = 0.0
     for (index, component) in enumerate(pool.components)
+        # Zero weights are skipped rather than multiplied. A component with an infinite
+        # mean, which a Student-t below one degree of freedom has, would otherwise turn a
+        # weight of zero into a NaN and poison a pool that does not use it at all.
+        iszero(pool.weights[index]) && continue
         total += pool.weights[index] * mean(component)
     end
     return total
@@ -80,6 +84,7 @@ function Distributions.var(pool::OpinionPool)
     centre = mean(pool)
     total = 0.0
     for (index, component) in enumerate(pool.components)
+        iszero(pool.weights[index]) && continue
         total += pool.weights[index] * (var(component) + (mean(component) - centre)^2)
     end
     return total
@@ -95,6 +100,7 @@ function disagreement(pool::OpinionPool)
     centre = mean(pool)
     between = 0.0
     for (index, component) in enumerate(pool.components)
+        iszero(pool.weights[index]) && continue
         between += pool.weights[index] * (mean(component) - centre)^2
     end
     return between
@@ -103,6 +109,7 @@ end
 function Distributions.pdf(pool::OpinionPool, x::Real)
     total = 0.0
     for (index, component) in enumerate(pool.components)
+        iszero(pool.weights[index]) && continue
         total += pool.weights[index] * pdf(component, Float64(x))
     end
     return total
@@ -129,6 +136,7 @@ end
 function Distributions.cdf(pool::OpinionPool, x::Real)
     total = 0.0
     for (index, component) in enumerate(pool.components)
+        iszero(pool.weights[index]) && continue
         total += pool.weights[index] * cdf(component, Float64(x))
     end
     return total

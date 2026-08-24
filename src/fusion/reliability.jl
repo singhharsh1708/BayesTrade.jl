@@ -24,6 +24,7 @@ mutable struct ModelReliability
     log_weights::Vector{Float64}
     forgetting::Float64
     scores::Vector{Float64}
+    answered::Vector{Int}
     n_scored::Int
 
     function ModelReliability(
@@ -38,7 +39,8 @@ mutable struct ModelReliability
         )
         size = length(labels)
         return new(
-            labels, fill(-log(size), size), Float64(forgetting), zeros(Float64, size), 0,
+            labels, fill(-log(size), size), Float64(forgetting), zeros(Float64, size),
+            zeros(Int, size), 0,
         )
     end
 end
@@ -68,9 +70,15 @@ Each model's average log score over everything it has been scored on.
 Reported beside the weights because they answer different questions: the weight says what the
 fusion layer currently believes, discounted; this says how the model has actually done.
 """
-mean_log_scores(reliability::ModelReliability) =
-    reliability.n_scored == 0 ? zeros(Float64, n_models(reliability)) :
-    reliability.scores ./ reliability.n_scored
+function mean_log_scores(reliability::ModelReliability)
+    # Divided by the bars each model actually answered, not by the bars the replay ran. A
+    # model that sat out half the run would otherwise report half the score it earned.
+    return Float64[
+        reliability.answered[index] == 0 ? 0.0 :
+            reliability.scores[index] / reliability.answered[index]
+            for index in 1:n_models(reliability)
+    ]
+end
 
 """
     score!(reliability, densities)
@@ -120,7 +128,10 @@ function score!(reliability::ModelReliability, densities::AbstractVector{<:Real}
     correction = log(sum(exp, reliability.log_weights))
     for index in 1:size
         reliability.log_weights[index] -= correction
-        isfinite(values[index]) && (reliability.scores[index] += values[index])
+        if isfinite(values[index])
+            reliability.scores[index] += values[index]
+            reliability.answered[index] += 1
+        end
     end
     reliability.n_scored += 1
     return reliability
@@ -135,6 +146,7 @@ function reset!(reliability::ModelReliability)
     size = n_models(reliability)
     fill!(reliability.log_weights, -log(size))
     fill!(reliability.scores, 0.0)
+    fill!(reliability.answered, 0)
     reliability.n_scored = 0
     return reliability
 end
@@ -144,6 +156,7 @@ parameters(reliability::ModelReliability) = Dict{String, Any}(
     "weights" => reliabilities(reliability),
     "forgetting" => reliability.forgetting,
     "n_scored" => reliability.n_scored,
+    "answered" => copy(reliability.answered),
     "mean_log_scores" => mean_log_scores(reliability),
 )
 
