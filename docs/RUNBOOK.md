@@ -212,13 +212,26 @@ Three behaviours matter for correctness rather than convenience:
 - The candle covering the current period is dropped. Its close is not a close, and a model
   fitted on it trains on a number that did not exist at that time.
 
+Market data on Groww is a paid entitlement. Quotes, OHLC and historical candles all sit behind
+the Trading API subscription, and a 403 on `/historical/candles` after a token was minted
+successfully means the subscription is not active rather than that anything is misconfigured.
+`translate_error` says so, because without the hint it reads as a bug in the client.
+
 The transport is a weak dependency. `BayesTrade` resolves, precompiles, backtests and paper
 trades with no HTTP library present, and `groww_transport` only exists once `using HTTP` has
 been run; without it, both it and `connect_groww` raise and say what is missing rather than
-failing as a `MethodError`. Add HTTP to your own environment:
+failing as a `MethodError`.
+
+**Do not `Pkg.add("HTTP")` inside the package project.** It promotes the weak dependency to a
+real one and rewrites `Project.toml`, deleting the `[weakdeps]` and `[extensions]` blocks with
+it. The examples carry their own environment for exactly this reason:
+
+```bash
+julia --project=examples -e 'using Pkg; Pkg.develop(path = "."); Pkg.instantiate()'
+julia --project=examples examples/groww_history.jl RELIANCE
+```
 
 ```julia
-using Pkg; Pkg.add("HTTP")
 using BayesTrade, HTTP
 
 source = connect_groww()                        # reads the environment, authenticates
