@@ -35,6 +35,7 @@ using Test
     include("test_regime_filter.jl")
     include("test_return_model.jl")
     include("test_model_mathematics.jl")
+    include("test_filters_fusion.jl")
     include("test_volatility_model.jl")
     include("test_scaled_return_model.jl")
     include("test_regime_model.jl")

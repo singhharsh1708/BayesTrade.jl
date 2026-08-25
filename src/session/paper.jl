@@ -516,6 +516,8 @@ function decision_record(
             "probability_large_loss" => haskey(intent.evidence, :probability_large_loss) ?
                 jsonable(intent.evidence[:probability_large_loss]) : nothing,
             "disagreement" => jsonable(prediction.diagnostics[:disagreement]),
+            "disagreement_share" => jsonable(disagreement_share(prediction)),
+            "agreement" => slug(model_agreement(prediction)),
         ),
         # the decision, and every gate it passed or failed
         "action" => slug(intent.action),

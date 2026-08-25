@@ -283,3 +283,50 @@ drives the rate negative (a design of magnitude 1e6 whose response lies exactly 
 plane: the unclamped rate is **-0.5**, and its square root is the NaN that would propagate through
 every prediction afterwards). The prior-mean pair survived because every prior the package builds
 has mean zero, leaving that path untested; a prior with an opinion now covers it.
+
+## Sections 5 to 8
+
+### V8 — the agreement label measures location, not confidence — informational
+
+Section 8 asked for model disagreement to be first-class. `disagreement_share(prediction)` is the
+share of predictive variance attributable to the models disagreeing, and `model_agreement`
+labels it HIGH, MEDIUM or LOW. Both are exposed in the decision journal and the dashboard payload.
+
+The bounds (0.10 and 0.35) are conventional, not derived, and **nothing branches on the label**.
+The brief is explicit that trading behaviour must not change on it without statistical
+justification, and none has been established.
+
+One thing worth writing down, found by a test that failed for the right reason. A model pairing a
+confident forecast with a useless one (`sd = 5.0` against `sd = 0.010`) reports **AGREEMENT_HIGH**,
+because the two agree about *where* the return will be and differ only in how sure they are.
+Agreement is about location; confidence is a separate axis. A reader who takes a high agreement
+label as "the models are confident" has read it backwards, and the test now says so in place.
+
+### Mutation results, sections 5 to 8
+
+| Mutation | Result |
+|---|---|
+| filtered shape discounted along with the data | 7 failures |
+| evolved shape discounted along with the data | 2 failures |
+| grid re-weighting frozen | 275 failures |
+| disagreement dropped from the fused epistemic variance | 1 failure |
+| zero-total weights collapse onto the first model | 2 failures |
+| the regime chain never propagates | 1 failure |
+| a skipped bar invents a zero return | 2 failures |
+| **variance rate floor removed** | **0 — equivalent mutant** |
+
+Three of these survived the first version of the suite and needed it strengthened.
+
+**The filtered and evolved shapes are different functions**, answering "how volatile is it now"
+and "how volatile will the next bar be". `predictive_df` reads only the evolved one, so a
+mutation to the filtered one survived a test that read only `predictive_df`. Both are pinned now.
+
+**The all-models-unusable branch was untested.** When every log weight has gone to minus infinity
+the pool falls back to uniform; collapsing onto whichever model happens to be first would be an
+arbitrary choice presented as a decision. Reachable in a test only by setting the log weights
+directly, which is what the test does.
+
+**The variance rate floor is an equivalent mutant, and by design.** The prior sits outside the
+discounted statistics, so the rate is the prior's rate plus something non-negative and the clamp
+can never bind. The module docstring already claimed this; it is now asserted rather than
+asserted-about. Recorded here so it is not re-reported as a surviving mutation later.
