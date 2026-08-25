@@ -95,15 +95,22 @@ function summarise(report::QualityReport)
 end
 
 """
-    validate_bars(bars; min_bars, max_gap_bars, stale_run, spike_sigmas)
+    validate_bars(bars; calendar, min_bars, max_gap_bars, stale_run, spike_sigmas)
 
 Run every check over one symbol's bars.
 
 `bars` must all belong to one symbol; a mixed sequence is a programming error and is
 reported as one rather than quietly checked as if it were a single series.
+
+`calendar` is optional and only the gap check uses it. Without one, gaps are counted in
+weekdays, which reports every exchange holiday as a hole in the download. With one, a five day
+break over Diwali is what it actually was. It is not the default because a calendar raises for
+years it does not cover, and a quality check that refuses to run is worse than one that is
+occasionally loud.
 """
 function validate_bars(
         bars::AbstractVector{Bar};
+        calendar::Union{TradingCalendar, Nothing} = nothing,
         min_bars::Integer = 30,
         max_gap_bars::Integer = 5,
         stale_run::Integer = 5,
@@ -122,7 +129,7 @@ function validate_bars(
     issues = QualityIssue[]
     append!(issues, check_ordering(bars, ordered, symbol))
     append!(issues, check_length(ordered, symbol, min_bars))
-    append!(issues, check_calendar_gaps(ordered, symbol, max_gap_bars))
+    append!(issues, check_calendar_gaps(ordered, symbol, max_gap_bars, calendar))
     append!(issues, check_volume(ordered, symbol))
     append!(issues, check_stale_prices(ordered, symbol, stale_run))
     append!(issues, check_returns(ordered, symbol, spike_sigmas))
@@ -171,7 +178,7 @@ check_length(bars::AbstractVector{Bar}, symbol::AbstractString, min_bars::Intege
     ]
 
 """
-    check_calendar_gaps(bars, symbol, max_gap_bars)
+    check_calendar_gaps(bars, symbol, max_gap_bars, calendar)
 
 Report runs of missing trading days.
 
@@ -179,11 +186,14 @@ Holidays are not modelled, so a two or three day gap is ordinary. A gap longer t
 `max_gap_bars` is either a trading halt or a hole in the download, and the two need
 different responses.
 """
-function check_calendar_gaps(bars::AbstractVector{Bar}, symbol::AbstractString, max_gap_bars::Integer)
+function check_calendar_gaps(
+        bars::AbstractVector{Bar}, symbol::AbstractString, max_gap_bars::Integer,
+        calendar::Union{TradingCalendar, Nothing} = nothing,
+    )
     issues = QualityIssue[]
     for index in 1:(length(bars) - 1)
         earlier, later = bars[index], bars[index + 1]
-        missing_days = trading_days_between(earlier.timestamp, later.timestamp)
+        missing_days = trading_days_between(earlier.timestamp, later.timestamp, calendar)
         missing_days > max_gap_bars && push!(
             issues, QualityIssue(
                 check = :calendar_gap, severity = WARNING, symbol = symbol,
@@ -196,20 +206,29 @@ function check_calendar_gaps(bars::AbstractVector{Bar}, symbol::AbstractString, 
 end
 
 """
-    trading_days_between(earlier, later)
+    trading_days_between(earlier, later, calendar = nothing)
 
 Trading days strictly between two timestamps.
 
 Counted with an explicit loop rather than a stepped date range. The range constructor drags
 in overflow handling that does not infer cleanly, and a day-by-day walk over a gap that is
 almost always under a week is not the place to be clever.
+
+A day the calendar cannot answer for is counted as a weekday would be. The alternative is for a
+quality check to raise partway through a series that runs off the end of the calendar, which
+turns a report into an outage.
 """
-function trading_days_between(earlier::DateTime, later::DateTime)
+function trading_days_between(
+        earlier::DateTime, later::DateTime,
+        calendar::Union{TradingCalendar, Nothing} = nothing,
+    )
     day = Date(earlier) + Day(1)
     final = Date(later) - Day(1)
     counted = 0
     while day <= final
-        is_trading_day(day) && (counted += 1)
+        open = calendar !== nothing && covers(calendar, day) ?
+            is_trading_day(calendar, day) : is_trading_day(day)
+        open && (counted += 1)
         day += Day(1)
     end
     return counted
