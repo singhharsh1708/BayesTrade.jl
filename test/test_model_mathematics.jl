@@ -363,13 +363,16 @@ end
         prior = NormalInverseGammaPrior(
             [0.0, 0.0], Matrix{Float64}(I, 2, 2) .* 1.0e-12, 2.0, 1.0e-12,
         )
+        # Two observations, entered by hand, and then the response sum of squares set to zero.
+        # No random data, no BLAS-dependent solve of a large system, nothing whose value
+        # depends on the order a sum was accumulated in.
         model = BayesianLinearModel(prior)
-        X, y = mm_data(300; beta = [0.001, 0.4], noise = 0.01, seed = 23)
-        fit!(model, X, y)
+        update!(model, [1.0, 1.0], 1.0)
+        update!(model, [1.0, -1.0], 1.0)
 
         # Understate the response sum of squares. Nothing in the model's own arithmetic can
         # produce this, but rounding in the same direction can, and the guard exists for that.
-        model.yy *= 0.5
+        model.yy = 0.0
         linear = prior.precision * prior.mean + model.xy
         unclamped = prior.rate + (
             dot(prior.mean, prior.precision * prior.mean) + model.yy -
