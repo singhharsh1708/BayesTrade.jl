@@ -92,8 +92,8 @@ A visible boundary in a long run.
 """
 function heading(text::AbstractString)
     println()
-    println("=" ^ 74)
+    println("="^74)
     println(uppercase(text))
-    println("=" ^ 74)
+    println("="^74)
     return nothing
 end
