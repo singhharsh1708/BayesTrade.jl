@@ -220,3 +220,66 @@ Section 12's suite was checked against five deliberate defects. All five caught:
 | account-level breach no longer stops the ruling | 2 failures |
 | liquidity boundary `>=` becomes `>` | 1 failure |
 | kill switch inverted | 15 failures, 5 errors |
+
+### V7 — the prior's ridge penalty enters the noise estimate — MEDIUM, documented not changed
+
+Found while checking the conjugate regression against its closed forms. Not a coding error: the
+implementation matches the normal-inverse-gamma posterior to floating point.
+
+```
+b_n = b_0 + (y'y + m_0' L_0 m_0 - m_n' L_n m_n) / 2
+```
+
+With `m_0 = 0` that difference is **not** the residual sum of squares. It is the residual sum of
+squares *plus* the ridge penalty the prior charges the fitted coefficients, `beta' L_0 beta`, and
+`E[sigma^2] = b_n / a_n` carries it. Where a coefficient is large against `coefficient_scale`,
+the penalty dominates and the model reports signal as noise.
+
+Measured on 2,000 rows with true noise 0.01 and a coefficient of 0.4:
+
+| `coefficient_scale` | `L_0` | `E[sigma^2]` / true | predictive sd |
+|---|---|---|---|
+| 0.25 | 16.0 | 13.6x | 0.0369 |
+| 0.5 (default) | 4.0 | 4.13x | 0.0203 |
+| 1.0 | 1.0 | 1.74x | 0.0132 |
+| 5.0 | 0.04 | 0.97x | 0.0099 |
+| 20.0 | 0.0025 | 0.94x | 0.0097 |
+
+The inflation tracks `beta' L_0 beta / SSE` exactly.
+
+**It does not bite in this system**, and the reason is worth knowing: the model standardises its
+features with statistics frozen at fitting time. On the baseline configuration `E[sigma^2]` is
+0.9996 of the empirical residual variance at every `coefficient_scale` tried.
+
+That makes the standardiser load-bearing rather than preprocessing, which is now asserted. On a
+raw return column (sd near 0.015) the prior precision of 4 swamps an `X'X` of about 0.45, and the
+fitted coefficient comes back at **10.4% of what the data says** while the model reports no
+particular difficulty. Standardised, it recovers **99.8%**.
+
+Two consequences for the calibration work in sections 9 to 11:
+
+1. A synthetic generator whose coefficients are large in raw units puts the model in the
+   prior-dominated regime, and every calibration number then measures the prior rather than the
+   model. Generators have to be checked against this before their calibration output means
+   anything.
+2. Removing or bypassing the scaler, for speed or for simplicity, silently moves the model into
+   that regime. The test now fails if anyone does.
+
+No change to the model. Section 10 says find the cause before adjusting, and the cause turns out
+to be a property of the prior that the existing design already handles.
+
+### Return model mutation results
+
+| Mutation | Result |
+|---|---|
+| `a_n = a_0 + n` instead of `a_0 + n/2` | 20 failures |
+| epistemic term dropped from the predictive scale | 4 failures |
+| negative-rate clamp removed | 1 failure, 1 error |
+| prior mean dropped from the rate | 2 failures |
+| prior mean dropped from the coefficients | 2 failures |
+
+The last three survived the first version of the suite. The clamp needed a case that actually
+drives the rate negative (a design of magnitude 1e6 whose response lies exactly on the fitted
+plane: the unclamped rate is **-0.5**, and its square root is the NaN that would propagate through
+every prediction afterwards). The prior-mean pair survived because every prior the package builds
+has mean zero, leaving that path untested; a prior with an opinion now covers it.
