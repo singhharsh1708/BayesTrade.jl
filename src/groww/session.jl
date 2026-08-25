@@ -336,3 +336,41 @@ function authenticate!(
         tryparse(DateTime, replace(String(expiry), " " => "T")) : nothing
     return session
 end
+
+"""
+    groww_transport(; timeout, root)
+
+An HTTP transport for a [`GrowwSession`](@ref).
+
+Lives in a package extension and needs `using HTTP` first. That is the whole reason the
+transport is injected: a trading system's dependency list is a liability, and the core of this
+package resolves and runs with no network library at all. The seam is the same one
+`data/sources.jl` describes for vendor adapters.
+
+Without HTTP loaded this method raises and says so, rather than failing as a `MethodError` that
+does not explain what is missing.
+"""
+function groww_transport(args...; kwargs...)
+    return throw(
+        ArgumentError(
+            "groww_transport lives in a package extension: run `using HTTP` first, " *
+                "after adding HTTP to your environment with `Pkg.add(\"HTTP\")`",
+        ),
+    )
+end
+
+"""
+    connect_groww(; kwargs...)
+
+Authenticate against Groww and return a ready [`GrowwSource`](@ref), retried.
+
+Also in the HTTP extension, and also raises with an explanation when HTTP is not loaded.
+"""
+function connect_groww(args...; kwargs...)
+    return throw(
+        ArgumentError(
+            "connect_groww lives in a package extension: run `using HTTP` first, " *
+                "after adding HTTP to your environment with `Pkg.add(\"HTTP\")`",
+        ),
+    )
+end

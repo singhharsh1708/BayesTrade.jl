@@ -1,6 +1,7 @@
 using BayesTrade
 using Dates
 using Distributions
+using HTTP
 using JSON3
 using LinearAlgebra
 using Random
@@ -46,6 +47,7 @@ using Test
     include("test_kite.jl")
     include("test_safety_gates.jl")
     include("test_groww.jl")
+    include("test_http_ext.jl")
     include("test_session.jl")
     include("test_health.jl")
     include("test_recovery.jl")
