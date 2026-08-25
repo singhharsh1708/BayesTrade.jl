@@ -191,3 +191,46 @@ Base.show(io::IO, prediction::FusedPrediction) = @printf(
     prediction.symbol, prediction.as_of, prediction.horizon_bars,
     n_models(prediction), mean(prediction), std(prediction)
 )
+
+"""
+    disagreement_share(prediction)
+
+The share of the predictive variance that is the models disagreeing, in `[0, 1]`.
+
+The raw `:disagreement` diagnostic is a variance between component means, which is a number
+whose size means nothing on its own: 1e-6 is enormous for daily returns and negligible for a
+price. Dividing by the total predictive variance gives a quantity that can be compared across
+symbols, horizons and days.
+
+Zero when the models say the same thing, whatever their individual spreads. Near one when the
+spread is almost entirely the gap between them.
+"""
+function disagreement_share(prediction::FusedPrediction)
+    between = get(prediction.diagnostics, :disagreement, 0.0)
+    total = var(prediction.distribution)
+    isfinite(total) && total > 0 || return 0.0
+    return clamp(between / total, 0.0, 1.0)
+end
+
+"""
+    AGREEMENT_BOUNDS
+
+Where the agreement labels change, as shares of the predictive variance.
+
+Conventional rather than derived. Nothing has established that a tenth is the right place for
+the first boundary, and because of that the label is a diagnostic and never a gate: it is read
+by a person looking at a journal line, and no code branches on it.
+"""
+const AGREEMENT_BOUNDS = (high = 0.1, medium = 0.35)
+
+"""
+    model_agreement(prediction)
+
+[`Agreement`](@ref) for one fused prediction.
+"""
+function model_agreement(prediction::FusedPrediction)
+    share = disagreement_share(prediction)
+    share <= AGREEMENT_BOUNDS.high && return AGREEMENT_HIGH
+    share <= AGREEMENT_BOUNDS.medium && return AGREEMENT_MEDIUM
+    return AGREEMENT_LOW
+end

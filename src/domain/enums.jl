@@ -81,6 +81,18 @@ The six modules the fusion layer knows how to weight.
 
 @enum RiskCheckStatus PASS FAIL SKIPPED
 
+"""
+    Agreement
+
+How much of a fused prediction's spread comes from the models disagreeing with each other.
+
+A diagnostic and nothing else. It is deliberately not wired into any gate: a decision that
+changes because the models disagree needs a statistical justification, and none has been
+established. What it is for is answering "why is the system uncertain here" without reading
+three posteriors by hand.
+"""
+@enum Agreement AGREEMENT_HIGH AGREEMENT_MEDIUM AGREEMENT_LOW
+
 @enum Exchange NSE BSE
 
 """
@@ -108,7 +120,7 @@ Lower-case string form, for configuration, logs and file formats.
 Defined explicitly rather than relying on `string`, so renaming an enum member is a visible
 break in the serialised form rather than a silent one.
 """
-slug(value::Union{TradingMode, Action, Regime, Sentiment, ModelName, RiskCheckStatus, NoTradeReason, OrderType, OrderStatus}) =
+slug(value::Union{TradingMode, Action, Regime, Sentiment, ModelName, RiskCheckStatus, NoTradeReason, OrderType, OrderStatus, Agreement}) =
     lowercase(string(value))
 
 slug(value::OrderSide) = value === BUY_SIDE ? "buy" : "sell"

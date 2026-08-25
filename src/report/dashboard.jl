@@ -47,6 +47,8 @@ function dashboard_payload(
             "probability_up" => probability_positive(prediction),
             "epistemic_share" => epistemic_share(prediction),
             "disagreement" => prediction.diagnostics[:disagreement],
+            "disagreement_share" => disagreement_share(prediction),
+            "agreement" => slug(model_agreement(prediction)),
             "weights" => collect(prediction.weights.probabilities),
         )
     end
