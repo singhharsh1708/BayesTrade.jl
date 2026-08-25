@@ -92,14 +92,14 @@ h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.09em;
   color: var(--ink-soft); margin: 40px 0 14px; font-weight: 600; }
 h2:first-of-type { margin-top: 0; }
 .note { color: var(--ink-faint); font-size: 13px; margin: -6px 0 14px; max-width: 68ch; }
-.cards { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(158px, 1fr)); }
+.cards { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(174px, 1fr)); }
 .card { background: var(--panel); border: 1px solid var(--edge); border-radius: 8px;
   padding: 14px 16px; }
 .card .label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em;
   color: var(--ink-faint); }
 .card .value { font: 600 24px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
   font-variant-numeric: tabular-nums; margin-top: 6px; overflow-wrap: anywhere; }
-.card .value.word { font-size: 17px; letter-spacing: 0.01em; }
+.card .value.word { font-size: 15px; letter-spacing: 0.01em; }
 .card .hint { font-size: 12px; color: var(--ink-faint); margin-top: 4px; }
 .card.flag-good .value { color: var(--good); }
 .card.flag-warn .value { color: var(--warn); }
