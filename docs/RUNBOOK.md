@@ -176,4 +176,21 @@ Three behaviours matter for correctness rather than convenience:
 - The candle covering the current period is dropped. Its close is not a close, and a model
   fitted on it trains on a number that did not exist at that time.
 
+The transport is a weak dependency. `BayesTrade` resolves, precompiles, backtests and paper
+trades with no HTTP library present, and `groww_transport` only exists once `using HTTP` has
+been run; without it, both it and `connect_groww` raise and say what is missing rather than
+failing as a `MethodError`. Add HTTP to your own environment:
+
+```julia
+using Pkg; Pkg.add("HTTP")
+using BayesTrade, HTTP
+
+source = connect_groww()                        # reads the environment, authenticates
+bars = fetch_bars(source, "RELIANCE"; start = Date(2025, 1, 1), stop = Date(2026, 6, 30))
+```
+
+`connect_groww` has no keyword for a secret. An argument is a thing that ends up in a script, a
+shell history and a stack trace, so the only way in is the environment. A TOTP code is accepted
+as an argument because it is worthless thirty seconds later.
+
 `examples/groww_history.jl` runs the whole path: authenticate, fetch, quality-check, replay.

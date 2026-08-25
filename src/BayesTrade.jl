@@ -228,6 +228,7 @@ export GrowwCredentials, GrowwSession, GrowwRequest, GrowwResponse, GrowwError
 export GROWW_API_ROOT, GROWW_READ_PATHS, GROWW_INTERVALS, GROWW_MAX_WINDOW_DAYS
 export groww_credentials_from_env, access_checksum, groww_call, token_expired, has_secret
 export GrowwSource, MalformedBarError, vendor_symbol, window_chunks
+export groww_transport, connect_groww
 
 export HealthStatus, SystemHealth, check_health, may_trade, healthy, problems
 export JournalState, read_journal, resume!, already_handled
