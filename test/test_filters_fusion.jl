@@ -70,6 +70,16 @@ violent(n, seed) = 0.04 .* randn(MersenneTwister(seed), n)
         shifting_discount = expected_discount(shifting)
 
         @test shifting_discount < steady_discount
+
+        # Evidence has to *accumulate*. A grid that re-weights from the latest bar alone still
+        # produces a plausible-looking expected discount and never learns anything: it is
+        # equally uncertain after six hundred bars as after twenty. The mutation that freezes
+        # the carried-forward term survives every other assertion in this file.
+        early = DiscountedVarianceFilter(ff_prior())
+        drive!(early, quiet(20, 5))
+        @test discount_entropy(steady) < discount_entropy(early) - 0.5
+        spread = maximum(steady.log_weights) - minimum(steady.log_weights)
+        @test spread > 5
         @test 0 < shifting_discount <= 1
         @test 0 < steady_discount <= 1
         # And the mixture says how sure it is about that, rather than only what it picked.
