@@ -55,6 +55,7 @@ using Test
     include("test_session.jl")
     include("test_health.jl")
     include("test_stress_chaos.jl")
+    include("test_provenance_stability.jl")
     include("test_recovery.jl")
     include("test_calibration.jl")
     include("test_walk_forward.jl")

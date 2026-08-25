@@ -214,6 +214,29 @@ function params_hash(model::ProbabilisticModel)
 end
 
 """
+    PACKAGE_VERSION
+
+The version this build of the package reports about itself, read from its own Project.toml.
+
+Read once at load rather than hardcoded, because a constant that has to be edited alongside the
+manifest is a constant that will disagree with it.
+"""
+const PACKAGE_VERSION = let
+    project = joinpath(dirname(dirname(@__DIR__)), "Project.toml")
+    version = v"0.0.0"
+    if isfile(project)
+        for line in eachline(project)
+            if startswith(line, "version")
+                parsed = tryparse(VersionNumber, strip(split(line, "=")[2], [' ', '"']))
+                parsed === nothing || (version = parsed)
+                break
+            end
+        end
+    end
+    version
+end
+
+"""
     stable_hash(payload)
 
 Hex digest of `payload`, identical across sessions and machines.

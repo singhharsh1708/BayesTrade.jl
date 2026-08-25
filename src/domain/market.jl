@@ -84,8 +84,16 @@ struct Bar
             interval::AbstractString = "1d",
         )
         isempty(symbol) && throw(ArgumentError("bar needs a symbol"))
+        # Finite before positive, and not the other way round. `Inf > 0` is true, so a
+        # positivity check alone lets an infinite price through: it then satisfies
+        # `high >= low` and `low <= open <= high` as well, constructs without complaint, and
+        # propagates into features and posteriors without ever raising. The same defect was
+        # fixed for `Quote` and missed here.
+        all(isfinite, (open, high, low, close)) ||
+            throw(ArgumentError("$symbol: every price must be finite"))
         all(>(0), (open, high, low, close)) ||
             throw(ArgumentError("$symbol: every price must be positive"))
+        isfinite(volume) || throw(ArgumentError("$symbol: volume must be finite"))
         volume >= 0 || throw(ArgumentError("$symbol: volume cannot be negative"))
         high >= low ||
             throw(ArgumentError("$symbol: high ($high) is below low ($low)"))
