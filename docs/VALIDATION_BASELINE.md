@@ -295,9 +295,18 @@ The third attempt has no arithmetic in its premise at all. Two observations ente
 response sum of squares set to zero, and an unclamped rate of -0.99999999999 on every platform.
 The mutation that removes the clamp is still caught.
 
-The general lesson is worth more than the guard: **a defensive branch that only fires on a
-rounding accident cannot be tested by reproducing the accident.** Put the state into the shape
-the branch defends against, directly.
+The third attempt still failed, and the cause was not the test. An earlier edit had spliced a
+replacement block into the file at the wrong offset and left the original, flaky testset in place
+below it. Both ran; the deterministic one passed everywhere and the duplicate kept failing on
+1.12, which is what the CI log had been reporting all along. Removed, and both Julia versions now
+run locally before anything is pushed.
+
+Two lessons, and the second cost more than the first:
+
+1. **A defensive branch that only fires on a rounding accident cannot be tested by reproducing
+   the accident.** Put the state into the shape the branch defends against, directly.
+2. **Read the failing line, not the failing name.** Three fixes went to a testset with the right
+   title while the failure was coming from a second copy of it forty lines further down.
 
 ## Sections 5 to 8
 
