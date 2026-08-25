@@ -164,3 +164,24 @@ describes a risk profile the run may not have had.
 
 Anyone sizing on that number is sizing on a number that means something else. Peak equity is
 already tracked, so a running maximum costs one field. Fixed in the section 13 pass.
+
+### V5 — an invariance test cannot see a symmetric leak — MEDIUM, test weakness
+
+Found by mutating the code the adversarial look-ahead suite is meant to protect.
+
+Deleting the walk-forward embargo (`train_stop = index - embargo - 1` becomes
+`index - 1`) left **all 8,078 assertions passing**. The clean-versus-poisoned construction
+compares two runs at the same index, and widening the training window widens it identically on
+both sides, so nothing moves.
+
+That is a real limit of the technique, not a one-off. Any leak that is a property of the
+*algorithm* rather than of the *data* is invisible to it, and the suite needed a direct temporal
+statement instead:
+
+```julia
+@test record.train_realised_through < record.as_of
+```
+
+With that added, the embargo mutation fails immediately. Recorded here because the same blind
+spot applies to every invariance test in the file: they prove no *data* leaked, and say nothing
+about whether the window was drawn correctly in the first place.

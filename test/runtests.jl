@@ -56,4 +56,5 @@ using Test
     include("test_walk_forward.jl")
     include("test_persistence.jl")
     include("test_leakage.jl")
+    include("test_lookahead_adversarial.jl")
 end
