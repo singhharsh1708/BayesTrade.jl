@@ -78,6 +78,7 @@ include("groww/session.jl")
 include("groww/source.jl")
 include("backtest/replay.jl")
 include("report/dashboard.jl")
+include("report/page.jl")
 include("session/paper.jl")
 # After session/paper.jl: health inspects a session, and the session calls health at run
 # time, so the mutual reference resolves at the call rather than at definition.
@@ -220,6 +221,7 @@ export credentials_from_env, login_url, session_checksum, is_authenticated
 export authorisation, build_request, kite_call, authenticate!, kite_quote, order_params
 
 export dashboard_payload, write_dashboard, DASHBOARD_SCHEMA_VERSION
+export dashboard_page, write_dashboard_page, serve_dashboard
 
 export PaperTradingSession, SessionCounters, SESSION_SCHEMA_VERSION
 export on_tick!, on_bar!, close_bar!, session_report, record!

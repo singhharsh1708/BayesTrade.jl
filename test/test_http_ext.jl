@@ -200,6 +200,62 @@ http_candle(moment::DateTime, close::Real) =
         end
     end
 
+    @testset "the dashboard serves on loopback and rebuilds per request" begin
+        # Rebuilt per request rather than captured at startup, so a session that is still
+        # running shows what it is doing now.
+        calls = Ref(0)
+        payload = Dict{String, Any}(
+            "schema" => 1, "symbol" => "SERVED", "n_scored" => 0, "n_examples" => 0,
+            "models" => String[], "series" => Any[], "decisions" => Any[],
+            "generated_at" => "2026-08-25T00:00:00",
+            "calibration" => Dict{String, Any}("coverage" => Any[]),
+            "limits" => Dict{String, Any}(),
+        )
+        socket = HTTP.Sockets.listenany(HTTP.Sockets.localhost, UInt16(0))
+        port = Int(socket[1])
+        close(socket[2])
+
+        server = serve_dashboard(
+            () -> (calls[] += 1; payload);
+            port = port, open_browser = false, refresh_seconds = 20,
+        )
+        try
+            page = HTTP.get("http://127.0.0.1:$port/"; status_exception = false)
+            @test page.status == 200
+            body = String(page.body)
+            @test occursin("SERVED", body)
+            @test occursin("<meta http-equiv=\"refresh\" content=\"20\">", body)
+            @test !occursin("https://", body)
+
+            json = HTTP.get("http://127.0.0.1:$port/payload.json")
+            @test JSON3.read(String(json.body), Dict{String, Any})["symbol"] == "SERVED"
+            @test HTTP.header(json, "Content-Type") == "application/json"
+
+            @test HTTP.get(
+                "http://127.0.0.1:$port/elsewhere"; status_exception = false,
+            ).status == 404
+            @test calls[] >= 2      # once for the page, once for the json
+
+            # A producer that raises is a bug worth reading. A dead tab is a worse way to
+            # report it than a page that says what went wrong.
+            broken = serve_dashboard(
+                () -> error("the producer blew up");
+                port = port + 1, open_browser = false,
+            )
+            try
+                failed = HTTP.get(
+                    "http://127.0.0.1:$(port + 1)/"; status_exception = false,
+                )
+                @test failed.status == 500
+                @test occursin("the producer blew up", String(failed.body))
+            finally
+                close(broken)
+            end
+        finally
+            close(server)
+        end
+    end
+
     @testset "connect_groww will not run without credentials in the environment" begin
         # There is no keyword to pass a secret in. An argument is a thing that ends up in a
         # script, a shell history and a stack trace.
