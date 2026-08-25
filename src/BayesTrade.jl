@@ -72,6 +72,7 @@ include("execution/paper.jl")
 # Before session/paper.jl: the session carries its last reconciliation as a field, so the
 # type has to exist by then. The method that reconciles a session resolves at the call.
 include("ops/reconciliation.jl")
+include("ops/rebuild.jl")
 # After execution/broker.jl: the Kite client speaks in Orders and Quotes.
 include("kite/protocol.jl")
 include("kite/session.jl")
@@ -243,6 +244,7 @@ export groww_transport, connect_groww
 
 export HealthStatus, SystemHealth, check_health, may_trade, healthy, problems
 export JournalState, read_journal, resume!, already_handled
+export RebuiltAccount, rebuild_account, rebuild_report, REBUILD_EQUITY_TOLERANCE
 export RunManifest, run_manifest, manifest_payload, run_label, MANIFEST_SCHEMA_VERSION
 export ModelCheck, ModelHealth, assess_model_health, model_health_report
 export ExternalPosition, ExternalOrder, VenueSnapshot, AccountSource, fetch_account

@@ -139,6 +139,36 @@ const CATALOGUE = Mutation[
         "test_risk_torture.jl", "the reported drawdown becomes the final bar's again",
     ),
     Mutation(
+        "resume-no-install", "src/ops/recovery.jl",
+        "    if install_positions && account.consistent",
+        "    if false",
+        "test_rebuild.jl", "a restart silently starts with an empty book again",
+    ),
+    Mutation(
+        "resume-install-anyway", "src/ops/recovery.jl",
+        "    if install_positions && account.consistent",
+        "    if install_positions",
+        "test_rebuild.jl", "an inconsistent reconstruction is installed regardless",
+    ),
+    Mutation(
+        "rebuild-cross-zero", "src/ops/rebuild.jl",
+        "        if iszero(held) || sign(held) != sign(updated) && !iszero(updated)",
+        "        if iszero(held)",
+        "test_rebuild.jl", "a long is averaged into a short",
+    ),
+    Mutation(
+        "reconcile-fail-open", "src/ops/reconciliation.jl",
+        "may_open_new_positions(result::Reconciliation) = reconciled(result)",
+        "may_open_new_positions(result::Reconciliation) = result.status !== RECONCILE_MISMATCHED",
+        "test_reconciliation.jl", "an unreadable venue stops failing closed",
+    ),
+    Mutation(
+        "reconcile-stale", "src/ops/reconciliation.jl",
+        "    if age > tolerances.max_staleness || age < Millisecond(0)",
+        "    if false",
+        "test_reconciliation.jl", "an old snapshot counts as evidence about now",
+    ),
+    Mutation(
         "bar-finite", "src/domain/market.jl",
         "        all(isfinite, (open, high, low, close)) ||\n            throw(ArgumentError(\"\$symbol: every price must be finite\"))",
         "        # mutated",
@@ -169,9 +199,9 @@ function main()
     selected = isempty(pattern) ? CATALOGUE :
         Mutation[m for m in CATALOGUE if occursin(pattern, m.id)]
 
-    println("=" ^ 78)
+    println("="^78)
     println("MUTATION CATALOGUE: ", length(selected), " deliberate defects")
-    println("=" ^ 78)
+    println("="^78)
     @printf("%-26s %-30s %s\n", "mutation", "suite", "result")
 
     survivors = String[]
@@ -195,7 +225,7 @@ function main()
         )
     end
 
-    println("=" ^ 78)
+    println("="^78)
     @printf(
         "%d caught, %d survived, %d anchors missing\n",
         length(selected) - length(survivors) - length(unanchored),

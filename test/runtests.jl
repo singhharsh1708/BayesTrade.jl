@@ -58,6 +58,7 @@ using Test
     include("test_provenance_stability.jl")
     include("test_reconciliation.jl")
     include("test_recovery.jl")
+    include("test_rebuild.jl")
     include("test_calibration.jl")
     include("test_walk_forward.jl")
     include("test_persistence.jl")
