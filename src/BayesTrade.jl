@@ -78,6 +78,7 @@ include("session/paper.jl")
 # After session/paper.jl: health inspects a session, and the session calls health at run
 # time, so the mutual reference resolves at the call rather than at definition.
 include("ops/health.jl")
+include("ops/recovery.jl")
 
 export TradingMode, BACKTEST, PAPER, LIVE, is_simulated
 export Action, BUY, SELL, HOLD, NO_TRADE, is_actionable
@@ -218,6 +219,7 @@ export PaperTradingSession, SessionCounters, SESSION_SCHEMA_VERSION
 export on_tick!, on_bar!, close_bar!, session_report, record!
 
 export HealthStatus, SystemHealth, check_health, may_trade, healthy, problems
+export JournalState, read_journal, resume!, already_handled
 
 export FeatureScaler, fit_scaler, transform, transform_row, unscale_coefficients
 export BayesianReturnModel, HorizonMismatchError, design_columns, response_scale

@@ -47,6 +47,7 @@ using Test
     include("test_safety_gates.jl")
     include("test_session.jl")
     include("test_health.jl")
+    include("test_recovery.jl")
     include("test_calibration.jl")
     include("test_walk_forward.jl")
     include("test_persistence.jl")

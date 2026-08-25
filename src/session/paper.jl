@@ -32,6 +32,7 @@ Base.@kwdef mutable struct SessionCounters
     bars::Int = 0
     stale_bars::Int = 0
     halted_bars::Int = 0
+    replayed::Int = 0
     predictions::Int = 0
     declined::Int = 0
     approved::Int = 0
@@ -72,6 +73,7 @@ mutable struct PaperTradingSession{F <: Tuple}
     counters::SessionCounters
     journal::Union{String, Nothing}
     journal_failed::Bool
+    watermark::Union{DateTime, Nothing}
 
     function PaperTradingSession(
             symbol::AbstractString, factories::F, features::FeatureSet;
@@ -106,7 +108,7 @@ mutable struct PaperTradingSession{F <: Tuple}
             limits, String(sector), Int(warmup), Int(refit_every), 0, 0, false,
             Float64(starting_cash), Float64(starting_cash), Float64(starting_cash), nothing,
             Tuple{Int, DateTime, Any}[], SessionCounters(),
-            journal === nothing ? nothing : String(journal), false,
+            journal === nothing ? nothing : String(journal), false, nothing,
         )
     end
 end
@@ -179,6 +181,20 @@ and scored only when its outcome exists.
 function on_bar!(session::PaperTradingSession, bar::Bar)
     session.counters.bars += 1
     session.bar_index += 1
+
+    # A bar the previous process already acted on must not be acted on again. Every
+    # re-processed bar is a second order for a decision already taken, which corrupts the
+    # record here and would be a duplicate trade against a real venue.
+    if already_handled(session, bar)
+        session.counters.replayed += 1
+        record!(
+            session,
+            Dict{String, Any}(
+                "event" => "already_handled", "as_of" => string(bar.timestamp),
+            ),
+        )
+        return nothing
+    end
     upsert!(session.engine.store, [bar])
     roll_day!(session, bar)
 
@@ -373,9 +389,14 @@ function act!(session::PaperTradingSession, bar::Bar, price::Quote)
 
     filled = 0.0
     detail = ""
+    order_id = nothing
+    fill_price = nothing
+    slippage = nothing
+    fees = nothing
     if approved(ruling)
         order = order_from_ruling(session.broker, ruling, price, book.equity)
         if order !== nothing
+            order_id = order.id
             receipt = place_order!(session.broker, order, price)
             detail = receipt.detail
             # Checked on the fill itself rather than on the status. A working limit order
@@ -386,28 +407,133 @@ function act!(session::PaperTradingSession, bar::Bar, price::Quote)
             else
                 session.counters.fills += 1
                 filled = fill.quantity * (is_buy(order) ? 1 : -1)
+                fill_price = fill.price
+                # What the fill cost against the price that was on the screen when the
+                # decision was made. Recorded rather than derived later, because the
+                # reference price is gone by the time anyone asks.
+                slippage = fill.price - price.last_price
+                fees = fill.commission
             end
         end
     end
 
+    # Enough to reconstruct the decision without the models, the market, or this process.
+    # The question it has to answer is "why did it act here", and answering that later from
+    # a summary is not possible: the features, the posteriors and the prices are all gone.
+    interval = credible_interval(prediction)
     record!(
-        session,
-        Dict{String, Any}(
-            "event" => "bar", "as_of" => string(bar.timestamp),
-            "close" => bar.close, "equity" => equity(session.broker),
-            "mean" => mean(prediction), "sd" => std(prediction),
-            "probability_up" => probability_positive(prediction),
-            "epistemic_share" => epistemic_share(prediction),
-            "models" => Int(length(ready)),
-            "action" => slug(intent.action),
-            "reason" => intent.reason === nothing ? nothing : slug(intent.reason),
-            "requested" => ruling.requested_weight,
-            "approved" => ruling.approved_weight,
-            "failures" => String[string(check.name) for check in failures(ruling)],
-            "filled" => filled, "detail" => detail,
-        ),
+        session, decision_record(
+            session, bar, price, vector, ready, results, prediction, intent, ruling,
+            interval, order_id, filled, fill_price, slippage, fees, detail,
+        )
     )
     return ruling
+end
+
+"""
+    jsonable(value)
+
+A number JSON can carry, or `nothing`.
+
+JSON has no `NaN` and no infinity, and both occur here legitimately: a gate that was skipped
+has no observed value, an unfitted model has infinite uncertainty, and an evidence key that was
+never reached is absent. Writing them raises, which the journal then reports as a failed write,
+which halts trading. Null is the honest encoding of "there is no number here".
+"""
+jsonable(value::Real) = isfinite(value) ? Float64(value) : nothing
+jsonable(::Nothing) = nothing
+
+"""
+    decision_record(session, bar, price, vector, models, results, prediction, intent, ruling, interval, order_id, filled, fill_price, slippage, fees, detail)
+
+One decision, in enough detail to be re-derived from the file alone.
+
+Every model's own posterior is kept beside the pooled one. A fused number explains what the
+system believed; only the components explain *why*, and which model was carrying the opinion is
+the first thing anyone asks afterwards.
+"""
+function decision_record(
+        session::PaperTradingSession, bar::Bar, price::Quote, vector::FeatureVector,
+        models::Vector{ProbabilisticModel}, results::Tuple, prediction::FusedPrediction,
+        intent::TradeIntent, ruling::RiskRuling, interval::CredibleInterval,
+        order_id, filled::Float64, fill_price, slippage, fees, detail::AbstractString,
+    )
+    components = Vector{Dict{String, Any}}()
+    for (index, result) in enumerate(results)
+        push!(
+            components,
+            Dict{String, Any}(
+                "model" => slug(result.model.name),
+                "version" => identifier(result.model),
+                "weight" => prediction.weights.probabilities[index],
+                "mean" => jsonable(mean(result.distribution)),
+                "sd" => jsonable(std(result.distribution)),
+                "epistemic_variance" => jsonable(result.epistemic_variance),
+                "n_observations" => result.n_observations,
+                "uncertainty" => jsonable(uncertainty(models[index])),
+                "diagnostics" => Dict{String, Any}(
+                    string(key) => jsonable(value) for (key, value) in result.diagnostics
+                ),
+            ),
+        )
+    end
+
+    return Dict{String, Any}(
+        "event" => "bar",
+        "schema" => SESSION_SCHEMA_VERSION,
+        "as_of" => string(bar.timestamp),
+        "symbol" => session.symbol,
+        # market state
+        "open" => bar.open, "high" => bar.high, "low" => bar.low,
+        "close" => bar.close, "volume" => bar.volume,
+        "reference_price" => price.last_price,
+        # features, exactly as the models saw them
+        "features" => Dict{String, Float64}(
+            string(name) => value for (name, value) in vector.values
+        ),
+        "features_as_of" => string(vector.as_of),
+        "n_bars" => vector.n_bars,
+        # each model's own posterior, then the pooled one
+        "components" => components,
+        "fused" => Dict{String, Any}(
+            "mean" => jsonable(mean(prediction)), "sd" => jsonable(std(prediction)),
+            "probability_up" => jsonable(probability_positive(prediction)),
+            "epistemic_variance" => jsonable(prediction.epistemic_variance),
+            "epistemic_share" => jsonable(epistemic_share(prediction)),
+            "lower" => jsonable(interval.lower), "upper" => jsonable(interval.upper),
+            "level" => interval.level,
+            # Absent when the decision was refused before the tail gate was reached, which
+            # is a real state and not a zero.
+            "probability_large_loss" => haskey(intent.evidence, :probability_large_loss) ?
+                jsonable(intent.evidence[:probability_large_loss]) : nothing,
+            "disagreement" => jsonable(prediction.diagnostics[:disagreement]),
+        ),
+        # the decision, and every gate it passed or failed
+        "action" => slug(intent.action),
+        "reason" => intent.reason === nothing ? nothing : slug(intent.reason),
+        "evidence" => Dict{String, Any}(
+            string(key) => jsonable(value) for (key, value) in intent.evidence
+        ),
+        "requested" => ruling.requested_weight,
+        "approved" => ruling.approved_weight,
+        "risk_checks" => [
+            Dict{String, Any}(
+                    "name" => string(check.name), "status" => slug(check.status),
+                    "observed" => jsonable(check.observed),
+                    "allowed" => jsonable(check.allowed),
+                    "detail" => check.detail,
+                ) for check in ruling.checks
+        ],
+        # what actually happened
+        "order_id" => order_id,
+        "filled" => jsonable(filled),
+        "fill_price" => jsonable(fill_price),
+        "slippage" => jsonable(slippage),
+        "fees" => jsonable(fees),
+        "detail" => detail,
+        "equity" => jsonable(equity(session.broker)),
+        "positions" => length(session.broker.positions),
+    )
 end
 
 """
@@ -432,6 +558,7 @@ function session_report(session::PaperTradingSession)
         "rejected" => session.counters.rejected,
         "stale_bars" => session.counters.stale_bars,
         "halted_bars" => session.counters.halted_bars,
+        "replayed" => session.counters.replayed,
         "refits" => session.counters.refits,
         "settled" => session.counters.settled,
         "pending" => length(session.pending),
