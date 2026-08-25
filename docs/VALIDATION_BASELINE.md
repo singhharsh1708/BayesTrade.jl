@@ -278,11 +278,35 @@ to be a property of the prior that the existing design already handles.
 | prior mean dropped from the rate | 2 failures |
 | prior mean dropped from the coefficients | 2 failures |
 
-The last three survived the first version of the suite. The clamp needed a case that actually
-drives the rate negative (a design of magnitude 1e6 whose response lies exactly on the fitted
-plane: the unclamped rate is **-0.5**, and its square root is the NaN that would propagate through
-every prediction afterwards). The prior-mean pair survived because every prior the package builds
-has mean zero, leaving that path untested; a prior with an opinion now covers it.
+The last three survived the first version of the suite. The prior-mean pair survived because
+every prior the package builds has mean zero, leaving that path untested; a prior with an opinion
+now covers it.
+
+The clamp took two attempts and the first one was a mistake worth recording. It built a design of
+magnitude 1e6 whose response lay exactly on the fitted plane and asserted the arithmetic would
+cancel to a negative rate. It did on Apple Silicon (`-0.5`) and did not on the CI runners, because
+the order of summation inside the solve depends on the BLAS and its thread count. **A test whose
+premise is a rounding accident is a flaky test, however real the guard it covers**, and it passed
+on the pull request that introduced it before failing on the next one. The second attempt still failed on Julia 1.12, for the
+same reason at a smaller scale: it fitted three hundred random rows and halved the response sum
+of squares, and the solve behind it was still large enough for the platform to matter.
+
+The third attempt has no arithmetic in its premise at all. Two observations entered by hand, the
+response sum of squares set to zero, and an unclamped rate of -0.99999999999 on every platform.
+The mutation that removes the clamp is still caught.
+
+The third attempt still failed, and the cause was not the test. An earlier edit had spliced a
+replacement block into the file at the wrong offset and left the original, flaky testset in place
+below it. Both ran; the deterministic one passed everywhere and the duplicate kept failing on
+1.12, which is what the CI log had been reporting all along. Removed, and both Julia versions now
+run locally before anything is pushed.
+
+Two lessons, and the second cost more than the first:
+
+1. **A defensive branch that only fires on a rounding accident cannot be tested by reproducing
+   the accident.** Put the state into the shape the branch defends against, directly.
+2. **Read the failing line, not the failing name.** Three fixes went to a testset with the right
+   title while the failure was coming from a second copy of it forty lines further down.
 
 ## Sections 5 to 8
 

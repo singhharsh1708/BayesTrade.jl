@@ -104,12 +104,12 @@ function main()
     for stage in sort(collect(keys(latency)))
         measurement = latency[stage]
         stages[stage] = Dict{String, Any}(
-            "microseconds" => rounded(measurement.seconds * 1e6, 2),
+            "microseconds" => rounded(measurement.seconds * 1.0e6, 2),
             "bytes" => measurement.bytes,
         )
         @printf(
             "%-28s %10.2f us  %10d bytes\n",
-            stage, measurement.seconds * 1e6, measurement.bytes,
+            stage, measurement.seconds * 1.0e6, measurement.bytes,
         )
     end
     baseline["latency"] = stages
