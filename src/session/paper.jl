@@ -78,6 +78,10 @@ mutable struct PaperTradingSession{F <: Tuple}
     journal::Union{String, Nothing}
     journal_failed::Bool
     watermark::Union{DateTime, Nothing}
+    # The last comparison against a venue, or nothing when no venue is configured. Paper mode
+    # has no external account to disagree with, so absence is not a failure here; a mismatch
+    # or an unreadable venue is, and health refuses on both.
+    reconciliation::Union{Reconciliation, Nothing}
 
     function PaperTradingSession(
             symbol::AbstractString, factories::F, features::FeatureSet;
@@ -113,7 +117,7 @@ mutable struct PaperTradingSession{F <: Tuple}
             Float64(starting_cash), Float64(starting_cash), 0.0,
             Float64(starting_cash), nothing,
             Tuple{Int, DateTime, Any}[], SessionCounters(),
-            journal === nothing ? nothing : String(journal), false, nothing,
+            journal === nothing ? nothing : String(journal), false, nothing, nothing,
         )
     end
 end
