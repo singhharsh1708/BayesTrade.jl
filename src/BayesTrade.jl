@@ -124,6 +124,8 @@ export mark_fitted!, reset!, require_fitted, params_hash, stable_hash
 
 export BARS_PER_YEAR, ANNUALISER, NSE_CLOSE
 export is_trading_day, trading_days, session_close, annualise, deannualise
+export TradingCalendar, CalendarCoverageError, covers, is_full_session
+export nse_calendar, load_calendar, NSE_HOLIDAYS_2025, NSE_HOLIDAYS_2026, NSE_MUHURAT
 
 export ReturnProcess, ProcessPath, simulate, process_parameters
 export GaussianReturns, AR1Returns, innovation_scale
