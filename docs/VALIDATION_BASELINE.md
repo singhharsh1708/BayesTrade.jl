@@ -185,3 +185,38 @@ statement instead:
 With that added, the embargo mutation fails immediately. Recorded here because the same blind
 spot applies to every invariance test in the file: they prove no *data* leaked, and say nothing
 about whether the window was drawn correctly in the first place.
+
+### V6 — the dashboard ruled with fewer gates than the live path — MEDIUM, fixed
+
+`dashboard_payload` called `review(intent, book, limits)` with no volatility and no turnover,
+while `PaperTradingSession` supplies both. Three of the nine gates were therefore SKIPPED in the
+panel labelled "every bar the system acted on or refused to, with the gate that stopped it".
+
+A ruling computed with fewer gates is a weaker ruling, so the panel was quietly optimistic: it
+could show a trade approved that the live path would have vetoed on volatility.
+
+Fixed by supplying `annualise(std(prediction))`, exactly as the session does. Turnover cannot be
+supplied there, because a replay record carries the prediction and not the bar, so the liquidity
+gate stays visibly SKIPPED rather than being invented. Section 24 should decide whether the
+replay record ought to carry enough of the bar to close that last gap.
+
+### V4 — resolved
+
+`max_drawdown_pct` and `current_drawdown_pct` are now reported separately, neither named so the
+other could be mistaken for it, and `drawdown_pct` is gone rather than silently redefined.
+
+On the baseline run the numbers are **0.944% maximum against 0.412% current**: the figure that
+was being printed, and that `examples/paper_session.jl` labelled "peak drawdown", understated
+the worst trough by more than half. Regression test confirmed to fail against the old code.
+
+### Risk engine mutation results
+
+Section 12's suite was checked against five deliberate defects. All five caught:
+
+| Mutation | Result |
+|---|---|
+| reducing trades charged as opening | 5 failures |
+| ceiling becomes a floor (`allowed = headroom`) | 8 errors |
+| account-level breach no longer stops the ruling | 2 failures |
+| liquidity boundary `>=` becomes `>` | 1 failure |
+| kill switch inverted | 15 failures, 5 errors |

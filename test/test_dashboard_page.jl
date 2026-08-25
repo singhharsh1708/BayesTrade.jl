@@ -126,3 +126,49 @@ end
         end
     end
 end
+
+@testset "the dashboard rules the way the live path rules" begin
+    # The panel is labelled as every bar the system acted on or refused to, with the gate that
+    # stopped it. A ruling computed with fewer gates than the session uses is a different
+    # ruling, and a weaker one, so the panel would be quietly optimistic.
+    payload = page_payload()
+    @test !isempty(payload["decisions"])
+
+    series = generate_series(
+        AR1Returns(phi = 0.4, annual_drift = 0.05);
+        symbol = "GATE", n_bars = 700, seed = 5, start = Date(2024, 1, 2),
+    )
+    engine = FeatureEngine(
+        InMemoryBarStore(series.bars),
+        FeatureSet(Feature[LogReturn(1), RealisedVolatility(20)]),
+    )
+    examples = build_training_set(engine, "GATE"; horizon_bars = 1)
+    report = replay(
+        (() -> BayesianReturnModel([:log_return_1]; horizon_bars = 1),),
+        examples; config = ReplayConfig(warmup = 400, refit_every = 50),
+    )
+    book = Portfolio(equity = 1.0e6, cash = 1.0e6, as_of = last(examples).features.as_of)
+
+    # A volatility ceiling tight enough to bite has to bite in the payload too.
+    tight = RiskLimits(max_annualised_volatility = 0.01)
+    payload = dashboard_payload(
+        report; limits = tight, book = book,
+        generated_at = DateTime(2026, 8, 25, 12),
+    )
+    actionable = [
+        row for row in payload["decisions"] if row["action"] in ("buy", "sell")
+    ]
+    @test !isempty(actionable)
+    @test all(row -> "volatility" in row["failures"], actionable)
+    @test all(row -> row["approved"] == 0.0, actionable)
+
+    # And with a limit nothing could breach, the gate is present and passing rather than
+    # absent, so a reader can tell it ran.
+    loose = dashboard_payload(
+        report; limits = RiskLimits(max_annualised_volatility = 50.0), book = book,
+        generated_at = DateTime(2026, 8, 25, 12),
+    )
+    relaxed = [row for row in loose["decisions"] if row["action"] in ("buy", "sell")]
+    @test !isempty(relaxed)
+    @test all(row -> !("volatility" in row["failures"]), relaxed)
+end

@@ -63,9 +63,18 @@ function dashboard_payload(
     if book !== nothing
         for record in records
             intent = decide(record.prediction, limits)
+            # Volatility is supplied the same way the live session supplies it. Without it the
+            # gate is skipped, and the panel then shows a ruling weaker than the one the
+            # system would actually have produced, which is the opposite of what a decision
+            # log is for. Turnover cannot be supplied here: a replay record carries the
+            # prediction and not the bar, so the liquidity gate stays visibly SKIPPED rather
+            # than being invented.
+            spread = annualise(std(record.prediction))
             ruling = sector === nothing ?
-                review(intent, book, limits) :
-                review(intent, book, limits; sector = sector)
+                review(intent, book, limits; annualised_volatility = spread) :
+                review(
+                    intent, book, limits; sector = sector, annualised_volatility = spread,
+                )
             push!(
                 decisions,
                 Dict{String, Any}(
