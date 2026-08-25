@@ -12,7 +12,7 @@
 
 using BayesTrade, Dates, Printf
 
-function history(symbol::AbstractString, years::Int)
+function history(symbol::AbstractString, years::Int, synthetic_ok::Bool)
     if haskey(ENV, "GROWW_API_KEY")
         @eval Main using HTTP
         source = Base.invokelatest(connect_groww)
@@ -23,7 +23,21 @@ function history(symbol::AbstractString, years::Int)
             interval = "1d",
         )
     end
-    @printf("no GROWW_API_KEY set, using synthetic history for %s\n", symbol)
+
+    # Falling back to a generator when a real ticker was asked for would draw a chart that
+    # looks like this company's history and is made up. Refusing is the only safe answer:
+    # a page labelled RELIANCE has to be Reliance.
+    synthetic_ok || error(
+        """
+        $symbol needs real history and no credentials are set.
+
+            export GROWW_API_KEY='...'
+            export GROWW_API_SECRET='...'
+
+        Run with no symbol for a synthetic demo instead.
+        """,
+    )
+    @printf("no GROWW_API_KEY set, generating synthetic history\n")
     return generate_series(
         AR1Returns(phi = 0.45, annual_drift = 0.06);
         symbol = symbol, n_bars = 252 * years, seed = 3,
@@ -31,8 +45,8 @@ function history(symbol::AbstractString, years::Int)
     ).bars
 end
 
-function build_payload(symbol::AbstractString, years::Int)
-    bars = history(symbol, years)
+function build_payload(symbol::AbstractString, years::Int, synthetic_ok::Bool)
+    bars = history(symbol, years, synthetic_ok)
     quality = validate_bars(bars; calendar = nse_calendar())
     println(summarise(quality))
 
@@ -60,12 +74,12 @@ function build_payload(symbol::AbstractString, years::Int)
     )
 end
 
-function main(symbol::String, years::Int, serve::Bool)
+function main(symbol::String, years::Int, serve::Bool, synthetic_ok::Bool)
     if serve
         # Rebuilt per request, so leaving the tab open and re-running the fit shows the new one.
         @eval Main using HTTP
         server = Base.invokelatest(
-            serve_dashboard, () -> build_payload(symbol, years);
+            serve_dashboard, () -> build_payload(symbol, years, synthetic_ok);
             title = "$symbol review", refresh_seconds = 30,
         )
         println("serving on http://127.0.0.1:8787/  (ctrl-c to stop)")
@@ -80,7 +94,7 @@ function main(symbol::String, years::Int, serve::Bool)
     end
 
     path = write_dashboard_page(
-        build_payload(symbol, years), joinpath(pwd(), "dashboard.html");
+        build_payload(symbol, years, synthetic_ok), joinpath(pwd(), "dashboard.html");
         title = "$symbol review",
     )
     @printf("wrote %s (%.0f KB)\n", path, filesize(path) / 1024)
@@ -103,5 +117,6 @@ if abspath(PROGRAM_FILE) == @__FILE__
         isempty(arguments) ? "SYNTH" : arguments[1],
         length(arguments) >= 2 ? parse(Int, arguments[2]) : 3,
         "--serve" in ARGS,
+        isempty(arguments),      # a generator stands in only when no ticker was named
     )
 end
