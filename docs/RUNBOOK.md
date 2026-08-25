@@ -130,6 +130,9 @@ What a restart does **not** do is recover the in-memory position book. In paper 
 acceptable because the positions are notional. It is not acceptable for live trading, and
 rebuilding position state from the journal is a blocker for Phase 15.
 
+See `docs/PRE_LIVE_AUDIT.md` for the go/no-go verdict, the defects the audit found, and the
+blockers still open.
+
 ## Safety gates
 
 Four independent barriers stand between running this and sending a real order. The first is the
