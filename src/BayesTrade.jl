@@ -84,6 +84,8 @@ include("session/paper.jl")
 # time, so the mutual reference resolves at the call rather than at definition.
 include("ops/health.jl")
 include("ops/recovery.jl")
+include("ops/provenance.jl")
+include("ops/model_health.jl")
 
 export TradingMode, BACKTEST, PAPER, LIVE, is_simulated
 export Action, BUY, SELL, HOLD, NO_TRADE, is_actionable
@@ -124,6 +126,7 @@ export ProbabilisticModel, NotFittedError, FitState
 export fit_state, model_name, model_semver, model_version, parameters, uncertainty
 export fit!, update!, predict, is_fitted, n_observations
 export mark_fitted!, reset!, require_fitted, params_hash, stable_hash
+export PACKAGE_VERSION
 
 export BARS_PER_YEAR, ANNUALISER, NSE_CLOSE
 export is_trading_day, trading_days, session_close, annualise, deannualise
@@ -236,6 +239,9 @@ export groww_transport, connect_groww
 
 export HealthStatus, SystemHealth, check_health, may_trade, healthy, problems
 export JournalState, read_journal, resume!, already_handled
+export RunManifest, run_manifest, manifest_payload, run_label, MANIFEST_SCHEMA_VERSION
+export ModelCheck, ModelHealth, assess_model_health, model_health_report
+export model_problems, trustworthy, MODEL_HEALTH_BOUNDS
 
 export FeatureScaler, fit_scaler, transform, transform_row, unscale_coefficients
 export BayesianReturnModel, HorizonMismatchError, design_columns, response_scale
