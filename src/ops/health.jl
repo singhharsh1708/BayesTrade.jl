@@ -55,6 +55,26 @@ race, and so a replay reaches the same verdict it would have reached live.
 function check_health(session::PaperTradingSession, now::DateTime)
     checks = HealthStatus[]
 
+    # The venue's view, if there is a venue. Paper mode has no external account to disagree
+    # with, so never having reconciled is not a failure. A comparison that ran and did not
+    # agree is, and so is one that could not read the account at all: both mean the position
+    # book may be describing an account that does not exist.
+    result = session.reconciliation
+    if result !== nothing
+        push!(
+            checks,
+            reconciled(result) ?
+                ok(:reconciliation, string("books agreed at ", result.as_of)) :
+                bad(
+                    :reconciliation,
+                    string(
+                        lowercase(replace(string(result.status), "RECONCILE_" => "")), ": ",
+                        result.detail,
+                    ),
+                ),
+        )
+    end
+
     # The feed. A feed that has gone quiet looks exactly like a still market, and a feed
     # that has never spoken is not a healthy feed waiting to start.
     quiet = silence(session.feed.health, now)
