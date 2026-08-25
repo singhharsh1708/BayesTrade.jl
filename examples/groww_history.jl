@@ -1,6 +1,7 @@
 #!/usr/bin/env julia
 #
-#   GROWW_API_KEY=... GROWW_API_SECRET=... julia --project=. examples/groww_history.jl RELIANCE
+#   julia --project=examples -e 'using Pkg; Pkg.develop(path = "."); Pkg.instantiate()'
+#   GROWW_API_KEY=... GROWW_API_SECRET=... julia --project=examples examples/groww_history.jl RELIANCE
 #
 # Fetches real NSE daily history from Groww and replays the pipeline over it. Read only: this
 # script cannot place an order, and neither can the client it uses. GROWW_READ_PATHS permits two
@@ -11,9 +12,9 @@
 # once should be regenerated.
 #
 # HTTP.jl is a weak dependency: the package resolves, backtests and paper trades without it, and
-# the transport only exists once it is loaded. Add it to your environment first:
-#
-#   julia --project=. -e 'using Pkg; Pkg.add("HTTP")'
+# the transport only exists once it is loaded. It lives in the examples environment above rather
+# than in the package project, where Pkg.add would promote it to a real dependency and rewrite
+# Project.toml.
 
 using BayesTrade, Dates, Printf, Statistics
 using HTTP        # brings the transport in; without it connect_groww says so and stops

@@ -1,14 +1,24 @@
 #!/usr/bin/env julia
 #
-#   julia --project=. examples/dashboard.jl                    # synthetic history, writes a file
-#   julia --project=. examples/dashboard.jl RELIANCE           # real history, if GROWW_API_KEY is set
-#   julia --project=. examples/dashboard.jl RELIANCE --serve    # live, rebuilt on every request
+# First time, from the repository root:
+#
+#   julia --project=examples -e 'using Pkg; Pkg.develop(path = "."); Pkg.instantiate()'
+#
+# Then:
+#
+#   julia --project=examples examples/dashboard.jl                   # synthetic history
+#   julia --project=examples examples/dashboard.jl RELIANCE          # real history, needs credentials
+#   julia --project=examples examples/dashboard.jl RELIANCE 3 --serve  # live, rebuilt per request
 #
 # Builds a dashboard for one symbol and opens it. The written page is self-contained: no build
 # step, no server, no network. It opens from the filesystem and works offline.
 #
-# `--serve` needs HTTP.jl (`Pkg.add("HTTP")`) and rebuilds the page on every request, which is
-# what you want while something is still running. It binds to the loopback interface only.
+# The examples get their own environment because HTTP.jl is a weak dependency of the package.
+# Running `Pkg.add("HTTP")` inside the package project promotes it to a real one and rewrites
+# Project.toml, taking the extension wiring with it.
+#
+# `--serve` rebuilds the page on every request, which is what you want while something is still
+# running. It binds to the loopback interface only.
 
 using BayesTrade, Dates, Printf
 

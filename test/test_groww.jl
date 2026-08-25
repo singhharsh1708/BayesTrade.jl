@@ -521,6 +521,18 @@ end
             SymbolNotFoundError
         # An authentication failure is not retried either: the token will still be rejected.
         @test BayesTrade.translate_error(GrowwError(401, "bad token")) isa GrowwError
+
+        # A 403 is an entitlement, not a transient failure and not a bad symbol. Retrying it
+        # forever is the wrong answer and so is reading it as a client bug, which is what it
+        # looks like without the hint.
+        forbidden = BayesTrade.translate_error(
+            GrowwError(403, "GA403", "Access forbidden for this request."),
+        )
+        @test forbidden isa GrowwError
+        @test forbidden.status == 403
+        @test occursin("Access forbidden for this request.", forbidden.message)
+        @test occursin("subscription", forbidden.message)
+        @test occursin("Authentication succeeding does not imply", forbidden.message)
     end
 
     @testset "the retry wrapper only spends attempts on the transient ones" begin

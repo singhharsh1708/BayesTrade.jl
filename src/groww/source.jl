@@ -245,6 +245,17 @@ an unknown symbol and a rejected token will not, and spending three attempts pro
 every symbol behind this one in the run.
 """
 function translate_error(error::GrowwError)
+    # Minting a token and being allowed to read market data are separate things on Groww, and
+    # the reply for the second does not say so. Without the hint this reads as a bug in the
+    # client, which is where the time then goes.
+    error.status == 403 && return GrowwError(
+        403, error.code,
+        string(
+            error.message,
+            " Market data on Groww (quotes, OHLC and historical candles) needs an active",
+            " Trading API subscription. Authentication succeeding does not imply access to it.",
+        ),
+    )
     error.status == 404 && return SymbolNotFoundError(error.message)
     error.status in (429, 500, 502, 503, 504) &&
         return TransientSourceError(string(error.status, ": ", error.message))
