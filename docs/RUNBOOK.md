@@ -133,6 +133,42 @@ rebuilding position state from the journal is a blocker for Phase 15.
 See `docs/PRE_LIVE_AUDIT.md` for the go/no-go verdict, the defects the audit found, and the
 blockers still open.
 
+## Looking at it
+
+```julia
+using BayesTrade, Dates
+payload = dashboard_payload(report; book = book, generated_at = now(UTC) + IST_OFFSET)
+write_dashboard_page(payload, "dashboard.html")     # open it from the filesystem
+```
+
+One HTML file with the payload inside it. No build step, no server, no network: every pixel is
+drawn into a canvas by hand rather than by a charting library, because a library here means
+either a CDN request the page cannot make offline or a vendored megabyte in the repository.
+
+It leads with calibration rather than with an equity curve. Anyone can plot an equity curve;
+whether the intervals hold up is what says the curve means anything. Then the posterior band
+against what actually happened, the coverage diagram, the pool weights over time, and every
+decision with the gate that stopped it.
+
+While something is still running, serve it instead:
+
+```julia
+using HTTP
+server = serve_dashboard(() -> dashboard_payload(latest_report(); book = book,
+                                                 generated_at = now(UTC) + IST_OFFSET);
+                         refresh_seconds = 30)
+close(server)
+```
+
+The producer is called per request, so the page shows the current state rather than the state
+it had at startup. **It binds to the loopback interface and there is no keyword to change
+that.** The page carries positions, limits and every decision the system took; putting that on
+whatever network the machine is attached to, with no authentication, is not something a flag
+should make easy.
+
+`examples/dashboard.jl` does the whole thing, on Groww history when `GROWW_API_KEY` is set and
+on synthetic history otherwise.
+
 ## Safety gates
 
 Four independent barriers stand between running this and sending a real order. The first is the

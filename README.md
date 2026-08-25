@@ -37,6 +37,11 @@ Historical data comes from `GrowwSource`, which reads NSE candles and nothing el
 can build exactly two request paths, and neither is an order endpoint. See
 `docs/RUNBOOK.md` for credentials and the correctness rules it enforces on vendor data.
 
+`write_dashboard_page(payload, "dashboard.html")` writes a self-contained page that opens from
+the filesystem with no build step and no network. It leads with calibration, model disagreement
+and every refusal with its reason, because those are the numbers that say whether an equity
+curve means anything.
+
 ## Architecture
 
 ```

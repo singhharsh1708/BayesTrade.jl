@@ -19,7 +19,8 @@ using JSON3
 
 import BayesTrade: GROWW_API_ROOT, GrowwRequest, GrowwResponse, GrowwSession,
     GrowwCredentials, GrowwSource, RetryingSource, MarketHours, IST_OFFSET,
-    authenticate!, connect_groww, groww_credentials_from_env, groww_transport
+    authenticate!, connect_groww, dashboard_page, groww_credentials_from_env,
+    groww_transport, serve_dashboard
 
 """
     groww_transport(; timeout, root)
@@ -64,6 +65,88 @@ function groww_transport(;
             return GrowwResponse(0, sprint(showerror, error))
         end
     end
+    """
+        serve_dashboard(producer; port, host, title, refresh_seconds, open_browser)
+
+    Serve the dashboard on this machine, rebuilding it on every request.
+
+    `producer` is called per request rather than once at startup, so a session that is still running
+    shows what it is doing now. A `Dict` is accepted too and is served unchanged.
+
+    **It binds to the loopback interface and there is no keyword to change that.** The page carries
+    positions, limits and every decision the system took. Binding to `0.0.0.0` would put that on
+    whatever network the machine is attached to, with no authentication, and there is no version of
+    "just for a minute" that makes it a good idea.
+
+    Returns the server. `close(server)` stops it.
+    """
+    function serve_dashboard(
+            producer;
+            port::Integer = 8787,
+            title::AbstractString = "",
+            refresh_seconds::Real = 0,
+            open_browser::Bool = true,
+        )
+        payload_of() = producer isa AbstractDict ? producer : producer()
+
+        server = HTTP.serve!("127.0.0.1", port; verbose = -1) do request
+            path = HTTP.URI(request.target).path
+            try
+                if path == "/payload.json"
+                    return HTTP.Response(
+                        200, ["Content-Type" => "application/json"];
+                        body = JSON3.write(payload_of()),
+                    )
+                elseif path == "/" || path == "/index.html"
+                    page = dashboard_page(
+                        payload_of(); title = title, refresh_seconds = refresh_seconds,
+                    )
+                    return HTTP.Response(
+                        200, ["Content-Type" => "text/html; charset=utf-8"]; body = page,
+                    )
+                end
+                return HTTP.Response(404, ["Content-Type" => "text/plain"]; body = "not here")
+            catch error
+                error isa InterruptException && rethrow()
+                # A producer that raises is a bug worth reading, and a dead browser tab is a
+                # worse way to report it than a page that says what went wrong.
+                return HTTP.Response(
+                    500, ["Content-Type" => "text/plain"];
+                    body = sprint(showerror, error),
+                )
+            end
+        end
+
+        url = "http://127.0.0.1:$port/"
+        @info "dashboard listening" url
+        open_browser && open_in_browser(url)
+        return server
+    end
+
+    """
+        open_in_browser(url)
+
+    Ask the desktop to open a URL, and shrug if it will not.
+
+    Failing to open a browser is not a reason to take down a server that is running correctly.
+    """
+    function open_in_browser(url::AbstractString)
+        command = if Sys.isapple()
+            `open $url`
+        elseif Sys.iswindows()
+            `cmd /c start $url`
+        else
+            `xdg-open $url`
+        end
+        try
+            run(command; wait = false)
+        catch error
+            error isa InterruptException && rethrow()
+            @warn "could not open a browser; open it yourself" url
+        end
+        return nothing
+    end
+
 end
 
 """
@@ -106,6 +189,170 @@ function connect_groww(;
         hours = hours, strict = strict, pause_seconds = pause_seconds,
     )
     return RetryingSource(source; attempts = attempts)
+    """
+        serve_dashboard(producer; port, host, title, refresh_seconds, open_browser)
+
+    Serve the dashboard on this machine, rebuilding it on every request.
+
+    `producer` is called per request rather than once at startup, so a session that is still running
+    shows what it is doing now. A `Dict` is accepted too and is served unchanged.
+
+    **It binds to the loopback interface and there is no keyword to change that.** The page carries
+    positions, limits and every decision the system took. Binding to `0.0.0.0` would put that on
+    whatever network the machine is attached to, with no authentication, and there is no version of
+    "just for a minute" that makes it a good idea.
+
+    Returns the server. `close(server)` stops it.
+    """
+    function serve_dashboard(
+            producer;
+            port::Integer = 8787,
+            title::AbstractString = "",
+            refresh_seconds::Real = 0,
+            open_browser::Bool = true,
+        )
+        payload_of() = producer isa AbstractDict ? producer : producer()
+
+        server = HTTP.serve!("127.0.0.1", port; verbose = -1) do request
+            path = HTTP.URI(request.target).path
+            try
+                if path == "/payload.json"
+                    return HTTP.Response(
+                        200, ["Content-Type" => "application/json"];
+                        body = JSON3.write(payload_of()),
+                    )
+                elseif path == "/" || path == "/index.html"
+                    page = dashboard_page(
+                        payload_of(); title = title, refresh_seconds = refresh_seconds,
+                    )
+                    return HTTP.Response(
+                        200, ["Content-Type" => "text/html; charset=utf-8"]; body = page,
+                    )
+                end
+                return HTTP.Response(404, ["Content-Type" => "text/plain"]; body = "not here")
+            catch error
+                error isa InterruptException && rethrow()
+                # A producer that raises is a bug worth reading, and a dead browser tab is a
+                # worse way to report it than a page that says what went wrong.
+                return HTTP.Response(
+                    500, ["Content-Type" => "text/plain"];
+                    body = sprint(showerror, error),
+                )
+            end
+        end
+
+        url = "http://127.0.0.1:$port/"
+        @info "dashboard listening" url
+        open_browser && open_in_browser(url)
+        return server
+    end
+
+    """
+        open_in_browser(url)
+
+    Ask the desktop to open a URL, and shrug if it will not.
+
+    Failing to open a browser is not a reason to take down a server that is running correctly.
+    """
+    function open_in_browser(url::AbstractString)
+        command = if Sys.isapple()
+            `open $url`
+        elseif Sys.iswindows()
+            `cmd /c start $url`
+        else
+            `xdg-open $url`
+        end
+        try
+            run(command; wait = false)
+        catch error
+            error isa InterruptException && rethrow()
+            @warn "could not open a browser; open it yourself" url
+        end
+        return nothing
+    end
+
+end
+
+"""
+    serve_dashboard(producer; port, host, title, refresh_seconds, open_browser)
+
+Serve the dashboard on this machine, rebuilding it on every request.
+
+`producer` is called per request rather than once at startup, so a session that is still running
+shows what it is doing now. A `Dict` is accepted too and is served unchanged.
+
+**It binds to the loopback interface and there is no keyword to change that.** The page carries
+positions, limits and every decision the system took. Binding to `0.0.0.0` would put that on
+whatever network the machine is attached to, with no authentication, and there is no version of
+"just for a minute" that makes it a good idea.
+
+Returns the server. `close(server)` stops it.
+"""
+function serve_dashboard(
+        producer;
+        port::Integer = 8787,
+        title::AbstractString = "",
+        refresh_seconds::Real = 0,
+        open_browser::Bool = true,
+    )
+    payload_of() = producer isa AbstractDict ? producer : producer()
+
+    server = HTTP.serve!("127.0.0.1", port; verbose = -1) do request
+        path = HTTP.URI(request.target).path
+        try
+            if path == "/payload.json"
+                return HTTP.Response(
+                    200, ["Content-Type" => "application/json"];
+                    body = JSON3.write(payload_of()),
+                )
+            elseif path == "/" || path == "/index.html"
+                page = dashboard_page(
+                    payload_of(); title = title, refresh_seconds = refresh_seconds,
+                )
+                return HTTP.Response(
+                    200, ["Content-Type" => "text/html; charset=utf-8"]; body = page,
+                )
+            end
+            return HTTP.Response(404, ["Content-Type" => "text/plain"]; body = "not here")
+        catch error
+            error isa InterruptException && rethrow()
+            # A producer that raises is a bug worth reading, and a dead browser tab is a
+            # worse way to report it than a page that says what went wrong.
+            return HTTP.Response(
+                500, ["Content-Type" => "text/plain"];
+                body = sprint(showerror, error),
+            )
+        end
+    end
+
+    url = "http://127.0.0.1:$port/"
+    @info "dashboard listening" url
+    open_browser && open_in_browser(url)
+    return server
+end
+
+"""
+    open_in_browser(url)
+
+Ask the desktop to open a URL, and shrug if it will not.
+
+Failing to open a browser is not a reason to take down a server that is running correctly.
+"""
+function open_in_browser(url::AbstractString)
+    command = if Sys.isapple()
+        `open $url`
+    elseif Sys.iswindows()
+        `cmd /c start $url`
+    else
+        `xdg-open $url`
+    end
+    try
+        run(command; wait = false)
+    catch error
+        error isa InterruptException && rethrow()
+        @warn "could not open a browser; open it yourself" url
+    end
+    return nothing
 end
 
 end
