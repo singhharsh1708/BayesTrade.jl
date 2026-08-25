@@ -67,6 +67,10 @@ mutable struct PaperTradingSession{F <: Tuple}
     fitted::Bool
     starting_equity::Float64
     peak_equity::Float64
+    # The worst peak-to-trough seen so far, carried rather than derived. Derived from the
+    # current equity it would be the drawdown *now*, which is a different quantity and the one
+    # a risk limit must never be set from.
+    max_drawdown::Float64
     day_start_equity::Float64
     current_day::Union{Date, Nothing}
     pending::Vector{Tuple{Int, DateTime, Any}}
@@ -106,7 +110,8 @@ mutable struct PaperTradingSession{F <: Tuple}
                 max_silence = max_silence,
             ),
             limits, String(sector), Int(warmup), Int(refit_every), 0, 0, false,
-            Float64(starting_cash), Float64(starting_cash), Float64(starting_cash), nothing,
+            Float64(starting_cash), Float64(starting_cash), 0.0,
+            Float64(starting_cash), nothing,
             Tuple{Int, DateTime, Any}[], SessionCounters(),
             journal === nothing ? nothing : String(journal), false, nothing,
         )
@@ -201,6 +206,10 @@ function on_bar!(session::PaperTradingSession, bar::Bar)
     price = Quote(session.symbol, bar.timestamp, bar.close; volume = bar.volume)
     mark_to_market!(session.broker, [price])
     session.peak_equity = max(session.peak_equity, equity(session.broker))
+    session.max_drawdown = max(
+        session.max_drawdown,
+        (session.peak_equity - equity(session.broker)) / session.peak_equity,
+    )
 
     settle!(session, bar)
     refit!(session, bar)
@@ -564,7 +573,12 @@ function session_report(session::PaperTradingSession)
         "pending" => length(session.pending),
         "equity" => value,
         "return_pct" => 100 * (value / session.starting_equity - 1),
-        "drawdown_pct" => 100 * max(0.0, (session.peak_equity - value) / session.peak_equity),
+        # Both, and neither of them named so that the other could be mistaken for it. A run
+        # can end near its high with a brutal trough behind it, and reporting only the first
+        # describes a risk profile the run did not have.
+        "max_drawdown_pct" => 100 * max(0.0, session.max_drawdown),
+        "current_drawdown_pct" =>
+            100 * max(0.0, (session.peak_equity - value) / session.peak_equity),
         "positions" => length(session.broker.positions),
         "reliabilities" => reliabilities(session.reliability),
         "models" => String[slug(name) for name in session.reliability.names],
