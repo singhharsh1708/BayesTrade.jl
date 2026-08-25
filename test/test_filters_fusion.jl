@@ -75,11 +75,21 @@ violent(n, seed) = 0.04 .* randn(MersenneTwister(seed), n)
         # produces a plausible-looking expected discount and never learns anything: it is
         # equally uncertain after six hundred bars as after twenty. The mutation that freezes
         # the carried-forward term survives every other assertion in this file.
-        early = DiscountedVarianceFilter(ff_prior())
-        drive!(early, quiet(20, 5))
-        @test discount_entropy(steady) < discount_entropy(early) - 0.5
-        spread = maximum(steady.log_weights) - minimum(steady.log_weights)
-        @test spread > 5
+        #
+        # Fed a constant rather than a random sequence, because the property is about how
+        # evidence accumulates and not about any particular draw. `randn` does not produce the
+        # same stream on every Julia version, and the first version of this assertion passed
+        # on 1.10 and failed on 1.12 for that reason alone.
+        long_run = DiscountedVarianceFilter(ff_prior())
+        short_run = DiscountedVarianceFilter(ff_prior())
+        for _ in 1:600
+            observe_variance!(long_run, 0.004^2)
+        end
+        for _ in 1:20
+            observe_variance!(short_run, 0.004^2)
+        end
+        @test discount_entropy(long_run) < discount_entropy(short_run) - 0.5
+        @test maximum(long_run.log_weights) - minimum(long_run.log_weights) > 5
         @test 0 < shifting_discount <= 1
         @test 0 < steady_discount <= 1
         # And the mixture says how sure it is about that, rather than only what it picked.

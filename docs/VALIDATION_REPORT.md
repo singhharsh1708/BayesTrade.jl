@@ -146,6 +146,13 @@ was written to catch them.** Each needed a specific weakness closed:
 | unweightable pool fallback | reachable only by setting the log weights directly |
 | grid re-weighting | the mutation still produces a plausible expected discount; only accumulation distinguishes it |
 
+A second lesson from the same test. Its first version drove the filter with `randn`, and `randn`
+does not produce the same stream on every Julia version: it passed on 1.10 and failed on 1.12 for
+that reason alone. The property being asserted is about how evidence accumulates and not about any
+particular draw, so it is now fed a constant. **A test of a structural property should not depend
+on a random sequence**, and the validation scripts now run on both Julia versions locally before
+anything is pushed.
+
 Every one of those is a claim nothing was checking, in a suite that was green.
 
 ## 22. Performance
