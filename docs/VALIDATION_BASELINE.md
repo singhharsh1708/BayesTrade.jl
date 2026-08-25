@@ -278,11 +278,18 @@ to be a property of the prior that the existing design already handles.
 | prior mean dropped from the rate | 2 failures |
 | prior mean dropped from the coefficients | 2 failures |
 
-The last three survived the first version of the suite. The clamp needed a case that actually
-drives the rate negative (a design of magnitude 1e6 whose response lies exactly on the fitted
-plane: the unclamped rate is **-0.5**, and its square root is the NaN that would propagate through
-every prediction afterwards). The prior-mean pair survived because every prior the package builds
-has mean zero, leaving that path untested; a prior with an opinion now covers it.
+The last three survived the first version of the suite. The prior-mean pair survived because
+every prior the package builds has mean zero, leaving that path untested; a prior with an opinion
+now covers it.
+
+The clamp took two attempts and the first one was a mistake worth recording. It built a design of
+magnitude 1e6 whose response lay exactly on the fitted plane and asserted the arithmetic would
+cancel to a negative rate. It did on Apple Silicon (`-0.5`) and did not on the CI runners, because
+the order of summation inside the solve depends on the BLAS and its thread count. **A test whose
+premise is a rounding accident is a flaky test, however real the guard it covers**, and it passed
+on the pull request that introduced it before failing on the next one. The cancellation is now
+driven deliberately by understating the response sum of squares, which is deterministic
+everywhere, and the mutation is still caught.
 
 ## Sections 5 to 8
 

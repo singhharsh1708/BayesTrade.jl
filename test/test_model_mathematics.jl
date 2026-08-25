@@ -350,6 +350,89 @@ end
     end
 
     @testset "the rate clamp is load-bearing, not decoration" begin
+        # The posterior rate is a difference of large terms, and on data whose residuals are
+        # genuinely almost zero the cancellation is the whole quantity. Unclamped it can land
+        # below zero, which is a negative variance, and its square root is the NaN that
+        # propagates through every prediction afterwards.
+        #
+        # The cancellation is driven here rather than hoped for. An earlier version of this
+        # test built a design of large magnitude and asserted the arithmetic would go negative;
+        # it did on one machine and did not on CI, because the order of summation inside the
+        # solve depends on the BLAS and its thread count. A test whose premise is a rounding
+        # accident is a flaky test, however real the guard it covers.
+        prior = NormalInverseGammaPrior(
+            [0.0, 0.0], Matrix{Float64}(I, 2, 2) .* 1.0e-12, 2.0, 1.0e-12,
+        )
+        model = BayesianLinearModel(prior)
+        X, y = mm_data(300; beta = [0.001, 0.4], noise = 0.01, seed = 23)
+        fit!(model, X, y)
+
+        # Understate the response sum of squares. Nothing in the model's own arithmetic can
+        # produce this, but rounding in the same direction can, and the guard exists for that.
+        model.yy *= 0.5
+        linear = prior.precision * prior.mean + model.xy
+        unclamped = prior.rate + (
+            dot(prior.mean, prior.precision * prior.mean) + model.yy -
+                dot(coefficients(model), linear)
+        ) / 2
+        @test unclamped < 0
+        @test posterior_rate(model) > 0
+        distribution, epistemic = predict(model, [1.0, 0.5])
+        @test isfinite(mean(distribution))
+        @test isfinite(scale(distribution))
+        @test scale(distribution) > 0
+        @test !isnan(epistemic)
+
+        # And on ordinary data the clamp never binds, whatever the magnitude, which is the
+        # other half of the claim.
+        for magnitude in (1.0, 1.0e3, 1.0e6)
+            ordinary = BayesianLinearModel(mm_prior(2))
+            scaled_X, scaled_y = mm_data(300; noise = 0.01, seed = 23)
+            fit!(ordinary, scaled_X .* magnitude, scaled_y .* magnitude)
+            @test posterior_rate(ordinary) > 0
+            @test isfinite(scale(predict(ordinary, [magnitude, 0.0])[1]))
+        end
+    end
+
+    @testset "a prior with an opinion is an opinion the posterior starts from" begin
+        # Every prior the package builds through weakly_informative_prior has mean zero, which
+        # makes the prior-mean term in the linear system vanish and leaves that path untested.
+        # A mutation that deletes it survives the whole file otherwise.
+        prior = NormalInverseGammaPrior(
+            [0.002, -0.5], Matrix{Float64}(I, 2, 2) .* 4.0, 2.0, 0.0004,
+        )
+        model = BayesianLinearModel(prior)
+
+        # With nothing seen, the predictive is centred where the prior says.
+        empty_row = [1.0, 1.0]
+        empty_distribution, _ = predict(model, empty_row)
+        @test mean(empty_distribution) ≈ 0.002 - 0.5
+        @test coefficients(model) ≈ prior.mean
+        # And the spread is the prior's spread. The rate is computed from a cancellation that
+        # only vanishes when the prior mean is carried through both of its terms, so a version
+        # that drops it from one of them lands here and nowhere else.
+        empty_leverage = dot(empty_row, prior.precision \ empty_row)
+        @test scale(empty_distribution) ≈
+            sqrt(prior.rate / prior.shape * (1 + empty_leverage)) rtol = 1.0e-12
+        @test posterior_rate(model) ≈ prior.rate rtol = 1.0e-12
+
+        # One informative batch pulls it toward the data without arriving there.
+        X, y = mm_data(40; beta = [0.001, 0.4], noise = 0.01, seed = 19)
+        fit!(model, X, y)
+        pulled = coefficients(model)[2]
+        @test pulled > prior.mean[2]           # moved toward +0.4
+        @test pulled < 0.4                     # and has not got there yet
+        @test posterior_rate(model) > 0
+
+        # More of the same data carries it the rest of the way.
+        X_long, y_long = mm_data(4000; beta = [0.001, 0.4], noise = 0.01, seed = 19)
+        far = BayesianLinearModel(prior)
+        fit!(far, X_long, y_long)
+        @test abs(coefficients(far)[2] - 0.4) < abs(pulled - 0.4)
+        @test abs(coefficients(far)[2] - 0.4) < 0.01
+    end
+
+    @testset "the rate clamp is load-bearing, not decoration" begin
         # The posterior rate is a difference of large terms. On a design of large magnitude
         # whose response lies exactly on the fitted plane, the cancellation is the whole
         # quantity and it lands below zero. Unclamped that is a negative variance, and its
