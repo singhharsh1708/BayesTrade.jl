@@ -28,10 +28,14 @@ hidden Markov forward recursion, and mixtures. Julia expresses that directly, an
 `Distributions.jl` supplies the predictive families with correct `cdf`, `quantile` and
 `logpdf` already checked by people other than us.
 
-The one place Julia costs something is the broker: Zerodha ships an official Python SDK and
-no Julia one, so the Kite client here is written against the REST and WebSocket protocols
-directly. That work is confined to the execution layer, behind a `Broker` interface that
-paper trading and backtesting satisfy without it.
+The one place Julia costs something is the broker: neither Zerodha nor Groww ships a Julia
+SDK, so both clients here are written against the documented HTTP protocols directly. That
+work is confined to the edges, behind a `Broker` interface that paper trading and backtesting
+satisfy without it and a `BarSource` interface that any vendor can be adapted to.
+
+Historical data comes from `GrowwSource`, which reads NSE candles and nothing else: its client
+can build exactly two request paths, and neither is an order endpoint. See
+`docs/RUNBOOK.md` for credentials and the correctness rules it enforces on vendor data.
 
 ## Architecture
 

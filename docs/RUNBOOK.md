@@ -146,3 +146,31 @@ strongest because it is not a check:
 
 The Kite client can authenticate and read quotes. It cannot place an order: there is no
 `place_order!` method that speaks to it.
+
+The Groww client is narrower still. `build_request` refuses any path outside
+`GROWW_READ_PATHS`, which holds two entries: mint a token, and read historical candles. Groww's
+API has order, position and holding endpoints; none of them can be reached from here, and the
+refusal happens when the request is built rather than when it is sent.
+
+## Historical data
+
+`GrowwSource` fetches real NSE history for backtesting. It needs `GROWW_API_KEY` in the
+environment, plus `GROWW_API_SECRET` for an approval key or a TOTP code passed to
+`authenticate!` for a TOTP key. Credentials are read at run time and belong nowhere else: not
+in a file in this repository, not in a saved script, not in a message. A secret that has been
+seen once should be regenerated rather than reused.
+
+Tokens expire daily at 06:00 IST. `session.expiry` records the expiry Groww returned, and
+`token_expired(session, moment)` answers whether it has passed, so a long run can mint a new
+one instead of discovering the fact halfway through a fetch.
+
+Three behaviours matter for correctness rather than convenience:
+
+- A window wider than Groww serves in one request is split and stitched. Truncating it would
+  leave a shorter series that still looks like a series.
+- Candles arriving twice at chunk boundaries are stored once. Two bars at one timestamp is a
+  repeated observation, and it moves every estimate that counts observations.
+- The candle covering the current period is dropped. Its close is not a close, and a model
+  fitted on it trains on a number that did not exist at that time.
+
+`examples/groww_history.jl` runs the whole path: authenticate, fetch, quality-check, replay.

@@ -72,6 +72,10 @@ include("execution/paper.jl")
 # After execution/broker.jl: the Kite client speaks in Orders and Quotes.
 include("kite/protocol.jl")
 include("kite/session.jl")
+# After data/sources.jl and feed/hours.jl: the Groww source is a BarSource and stamps its
+# bars in exchange-local time. History only; it has no order path at all.
+include("groww/session.jl")
+include("groww/source.jl")
 include("backtest/replay.jl")
 include("report/dashboard.jl")
 include("session/paper.jl")
@@ -217,6 +221,11 @@ export dashboard_payload, write_dashboard, DASHBOARD_SCHEMA_VERSION
 
 export PaperTradingSession, SessionCounters, SESSION_SCHEMA_VERSION
 export on_tick!, on_bar!, close_bar!, session_report, record!
+
+export GrowwCredentials, GrowwSession, GrowwRequest, GrowwResponse, GrowwError
+export GROWW_API_ROOT, GROWW_READ_PATHS, GROWW_INTERVALS, GROWW_MAX_WINDOW_DAYS
+export groww_credentials_from_env, access_checksum, groww_call, token_expired, has_secret
+export GrowwSource, MalformedBarError, vendor_symbol, window_chunks
 
 export HealthStatus, SystemHealth, check_health, may_trade, healthy, problems
 export JournalState, read_journal, resume!, already_handled

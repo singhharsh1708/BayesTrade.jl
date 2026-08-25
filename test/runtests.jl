@@ -45,6 +45,7 @@ using Test
     include("test_dashboard.jl")
     include("test_kite.jl")
     include("test_safety_gates.jl")
+    include("test_groww.jl")
     include("test_session.jl")
     include("test_health.jl")
     include("test_recovery.jl")
