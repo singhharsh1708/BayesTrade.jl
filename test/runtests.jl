@@ -30,6 +30,7 @@ using Test
     include("test_volatility_features.jl")
     include("test_volume_features.jl")
     include("test_labels.jl")
+    include("test_store_forward.jl")
     include("test_linear.jl")
     include("test_variance_filter.jl")
     include("test_regime_filter.jl")

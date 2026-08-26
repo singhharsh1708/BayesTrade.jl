@@ -149,6 +149,7 @@ export closes, true_log_returns, true_volatility, true_states
 export realised_log_returns, bars_until
 
 export BarStore, InMemoryBarStore, Coverage, IntervalConflictError
+export upcoming
 export upsert!, symbols, coverage, history, load_range, latest, bar_count
 export clear!, all_bars, align
 

@@ -135,13 +135,44 @@ Both cannot be a property of "the system". Whatever is driving it is a property 
 configuration, and section 10 must find which before anything is adjusted. Inflating variance to
 fix the first run would have broken the second.
 
-### V2 — feature generation allocates quadratically — MEDIUM
+### V2 — feature generation allocates quadratically — MEDIUM, **fixed**
 
 11.9 GB to build features for 10,000 bars, against 32 MB for 500. Time stays near linear, so this
 is repeated allocation rather than repeated work: something is copying a window per bar instead
 of viewing it. Ten years of one-minute bars is roughly a million rows, which at this rate does not
 fit in any machine. Not a correctness defect, and not worth optimising until sections 2 to 14 have
 finished changing the code, but it caps how large a validation dataset can be.
+
+**Cause, found by profiling rather than guessed at.** It was not the features. `walk` is linear
+and stays at 11.3 KB per bar at every size tried; `features_at` and `history` are constant per
+call. All of it was in `forward_label`:
+
+```julia
+ahead = Bar[bar for bar in load_range(store, symbol, entry.timestamp) if ...]
+holding = view(ahead, 1:horizon_bars)
+```
+
+`load_range` returns every bar from a moment to the end of history, materialised into a fresh
+array, and the label keeps `horizon_bars` of them. For row *i* of *n* that copies *n − i* bars,
+which sums to O(n²). The only forward read the store offered was an unbounded one, so a caller
+wanting three bars had no way to ask for three bars.
+
+**Fix.** `upcoming(store, symbol; after, count)`, the mirror of `history(...; as_of, count)`.
+Bisects the same sorted stamps and collects at most `count`.
+
+| Bars | before | after | |
+|---|---|---|---|
+| 500 | 32.4 MB | **5.9 MB** | 5.5x |
+| 2,000 | 430.6 MB | **24.7 MB** | 17x |
+| 10,000 | 11,963.4 MB | **125.0 MB** | **96x** |
+
+Time fell with it, 0.581 s to 0.052 s at 10,000 bars, and the scaling is now linear: 4x the bars
+costs 4.2x the memory, 5x costs 5.1x.
+
+**Every label is bit-identical.** The test keeps the previous implementation as its reference and
+compares `realised_at`, `forward_log_return` and both excursions with `===` across three horizons
+and 22,076 assertions. Leak-freedom is unaffected: a label is *defined* by what happens after it,
+which is the property a feature must not have, and the adversarial look-ahead suite still passes.
 
 ### V3 — the pool collapses onto one model — MEDIUM
 
