@@ -122,29 +122,45 @@ function rebuild_account(path::AbstractString)
         close = get(entry, "close", nothing)
         close isa Real && isfinite(close) && (last_price[name] = Float64(close))
 
+        # Narrowed by `isa` and then converted, rather than guarded with a chain and
+        # converted afterwards. A journal is JSON, so every field arrives as a union of
+        # everything JSON can hold, and a guard that reads well does not always tell the
+        # compiler what the branch below already knows.
         filled = get(entry, "filled", nothing)
-        (filled isa Real && isfinite(filled) && !iszero(filled)) || continue
-        price = get(entry, "fill_price", nothing)
-        if !(price isa Real) || !isfinite(price) || price <= 0
+        filled isa Real || continue
+        quantity = Float64(filled)
+        (isfinite(quantity) && !iszero(quantity)) || continue
+
+        raw_price = get(entry, "fill_price", nothing)
+        if !(raw_price isa Real)
             push!(
                 problems,
                 string("a fill at ", something(moment, "an unknown time"), " has no price"),
             )
             continue
         end
-        fees = get(entry, "fees", nothing)
-        charge = fees isa Real && isfinite(fees) ? Float64(fees) : 0.0
+        price = Float64(raw_price)
+        if !isfinite(price) || price <= 0
+            push!(
+                problems,
+                string("a fill at ", something(moment, "an unknown time"), " has no price"),
+            )
+            continue
+        end
 
-        quantity = Float64(filled)
+        raw_fees = get(entry, "fees", nothing)
+        charge = raw_fees isa Real ? Float64(raw_fees) : 0.0
+        isfinite(charge) || (charge = 0.0)
+
         n_fills += 1
-        cash -= quantity * Float64(price) + charge
+        cash -= quantity * price + charge
 
         held = get(quantities, name, 0.0)
         updated = held + quantity
-        if iszero(held) || sign(held) != sign(updated) && !iszero(updated)
+        if iszero(held)
             # Opening, or crossing through zero into the other direction. Averaging a long
             # into a short produces a number that is neither.
-            averages[name] = Float64(price)
+            averages[name] = price
             opened[name] = something(moment, DateTime(1970, 1, 1))
         elseif abs(updated) > abs(held)
             averages[name] =
