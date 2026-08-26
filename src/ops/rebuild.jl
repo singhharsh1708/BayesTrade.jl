@@ -157,7 +157,7 @@ function rebuild_account(path::AbstractString)
 
         held = get(quantities, name, 0.0)
         updated = held + quantity
-        if iszero(held)
+        if iszero(held) || sign(held) != sign(updated) && !iszero(updated)
             # Opening, or crossing through zero into the other direction. Averaging a long
             # into a short produces a number that is neither.
             averages[name] = price
