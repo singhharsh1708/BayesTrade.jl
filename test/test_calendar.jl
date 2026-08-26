@@ -94,12 +94,17 @@ end
     end
 
     @testset "a calendar cannot claim less than it lists" begin
+        fixture = ["a test fixture"]
         @test_throws ArgumentError TradingCalendar(
-            [Date(2025, 1, 1)]; covered = 2026:2026,
+            [Date(2025, 1, 1)]; covered = 2026:2026, sources = fixture,
         )
-        @test_throws ArgumentError TradingCalendar(Date[])
-        @test TradingCalendar(Date[]; covered = 2030:2030).covered == 2030:2030
-        derived = TradingCalendar([Date(2025, 5, 1), Date(2027, 5, 1)])
+        @test_throws ArgumentError TradingCalendar(Date[]; sources = fixture)
+        @test TradingCalendar(
+            Date[]; covered = 2030:2030, sources = fixture,
+        ).covered == 2030:2030
+        derived = TradingCalendar(
+            [Date(2025, 5, 1), Date(2027, 5, 1)]; sources = fixture,
+        )
         @test derived.covered == 2025:2027
     end
 
@@ -124,15 +129,18 @@ end
                 2027-12-25
                 """,
             )
-            calendar = load_calendar(path; covered = 2027:2027)
+            fixture = ["a test fixture"]
+            calendar = load_calendar(path; covered = 2027:2027, sources = fixture)
             @test !is_trading_day(calendar, Date(2027, 1, 26))
             @test is_trading_day(calendar, Date(2027, 1, 27))
             @test length(calendar.holidays) == 2
 
             write(path, "not-a-date\n")
-            @test_throws ArgumentError load_calendar(path; covered = 2027:2027)
             @test_throws ArgumentError load_calendar(
-                joinpath(dir, "absent.txt"); covered = 2027:2027,
+                path; covered = 2027:2027, sources = fixture,
+            )
+            @test_throws ArgumentError load_calendar(
+                joinpath(dir, "absent.txt"); covered = 2027:2027, sources = fixture,
             )
         end
     end
@@ -166,5 +174,112 @@ end
         @test BayesTrade.trading_days_between(
             DateTime(2027, 3, 1, 10), DateTime(2027, 3, 8, 10), nse_calendar(),
         ) == 4
+    end
+end
+
+@testset "calendar coverage and provenance" begin
+    calendar = nse_calendar()
+
+    @testset "an ordinary trading day, a weekend and a holiday" begin
+        @test is_trading_day(calendar, Date(2026, 6, 3))        # a Wednesday, nothing on
+        @test is_full_session(calendar, Date(2026, 6, 3))
+        @test !is_trading_day(calendar, Date(2026, 6, 6))       # Saturday
+        @test !is_trading_day(calendar, Date(2026, 6, 7))       # Sunday
+        @test !is_trading_day(calendar, Date(2026, 6, 26))      # Moharram
+        @test is_trading_day(calendar, Date(2026, 6, 25))
+        @test is_trading_day(calendar, Date(2026, 6, 29))
+    end
+
+    @testset "the year boundary is handled at both ends of the coverage" begin
+        # 2025-01-01 is a Wednesday and not on the holiday list, so it trades.
+        @test is_trading_day(calendar, Date(2025, 1, 1))
+        @test !is_trading_day(calendar, Date(2026, 12, 25))     # Christmas, a Friday
+        @test is_trading_day(calendar, Date(2026, 12, 31))      # a Thursday, nothing on
+        # One day past the coverage in either direction is refused, not guessed.
+        @test_throws CalendarCoverageError is_trading_day(calendar, Date(2024, 12, 31))
+        @test_throws CalendarCoverageError is_trading_day(calendar, Date(2027, 1, 1))
+    end
+
+    @testset "an unsupported year says how to supply it" begin
+        # The message has to be actionable. An operator hitting this in a year's time needs
+        # to know that the absence is deliberate and what closes it.
+        message = try
+            is_trading_day(calendar, Date(2027, 3, 1))
+            ""
+        catch error
+            sprint(showerror, error)
+        end
+        @test occursin("2027", message)
+        @test occursin("load_calendar", message)
+        @test occursin("two independent sources", message)
+        @test occursin("published", message)
+    end
+
+    @testset "the shipped years carry their provenance" begin
+        # A holiday list is exchange data and its only claim to being right is who published
+        # it. A calendar that cannot say that is a list of dates somebody typed.
+        @test length(calendar.sources) >= 2
+        @test all(!isempty, calendar.sources)
+        @test_throws ArgumentError TradingCalendar(
+            [Date(2027, 1, 1)]; covered = 2027:2027, sources = String[],
+        )
+        @test occursin("sources", sprint(show, calendar))
+    end
+
+    @testset "a supplied year covers a leap year correctly" begin
+        # 2028 is a leap year and the shipped calendar does not reach it. Supplied, the
+        # arithmetic has to handle 29 February like any other date.
+        mktempdir() do dir
+            path = joinpath(dir, "2028.txt")
+            write(
+                path,
+                """
+                # placeholder dates for a leap year, not an exchange list
+                2028-01-26
+                2028-02-29
+                2028-12-25
+                """,
+            )
+            supplied = load_calendar(
+                path; covered = 2028:2028, sources = ["a test fixture, not an exchange"],
+            )
+            @test Date(2028, 2, 29) in supplied.holidays
+            @test !is_trading_day(supplied, Date(2028, 2, 29))   # a Tuesday, listed closed
+            @test is_trading_day(supplied, Date(2028, 2, 28))    # the Monday before
+            @test is_trading_day(supplied, Date(2028, 3, 1))     # the Wednesday after
+            @test daysinmonth(Date(2028, 2, 1)) == 29
+            @test !is_trading_day(supplied, Date(2028, 1, 26))
+            @test length(supplied.sources) == 1
+        end
+    end
+
+    @testset "a supplied calendar must say where it came from" begin
+        mktempdir() do dir
+            path = joinpath(dir, "2027.txt")
+            write(path, "2027-01-26\n")
+            # Omitting it is a missing keyword, not a defaulted one: there is no sensible
+            # default for where a holiday list came from.
+            @test_throws UndefKeywordError load_calendar(path; covered = 2027:2027)
+            @test_throws ArgumentError load_calendar(
+                path; covered = 2027:2027, sources = String[],
+            )
+            supplied = load_calendar(
+                path; covered = 2027:2027, sources = ["nseindia.com circular"],
+            )
+            @test !is_trading_day(supplied, Date(2027, 1, 26))
+        end
+    end
+
+    @testset "a special session is represented and is not a full session" begin
+        for date in NSE_MUHURAT
+            @test is_trading_day(calendar, date)
+            @test !is_full_session(calendar, date)
+        end
+        supplied = TradingCalendar(
+            [Date(2027, 11, 5)], [Date(2027, 11, 5)];
+            covered = 2027:2027, sources = ["a test fixture"],
+        )
+        @test is_trading_day(supplied, Date(2027, 11, 5))
+        @test !is_full_session(supplied, Date(2027, 11, 5))
     end
 end

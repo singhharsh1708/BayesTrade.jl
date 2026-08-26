@@ -200,12 +200,15 @@ call the behaviour clearly wrong, not where the current system happens to sit.
 
 ## 27. Remaining blockers
 
-From `PRE_LIVE_AUDIT.md`, unchanged by this exercise:
+From `PRE_LIVE_AUDIT.md`. Two of these were closed by the pre-market hardening that followed
+this report; they are struck through rather than deleted, because what was open when a verdict was
+reached is part of the verdict.
 
-1. No live broker exists. `subtypes(Broker) == [PaperBroker]`.
-2. No position reconciliation against a venue.
-3. `resume!` does not rebuild the position book.
-4. The calendar covers 2025 and 2026 only.
+1. No live broker exists. `subtypes(Broker) == [PaperBroker]`. **Open, deliberately.**
+2. ~~No position reconciliation against a venue.~~ **Closed.**
+3. ~~`resume!` does not rebuild the position book.~~ **Closed.**
+4. The calendar covers 2025 and 2026 only. **Open**: the NSE has not published 2027, and a
+   projection is not a published list.
 
 Added by this exercise:
 

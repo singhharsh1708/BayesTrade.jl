@@ -62,6 +62,10 @@ end
 Base.showerror(io::IO, error::CalendarCoverageError) = print(
     io, "CalendarCoverageError: this calendar covers ", first(error.covered), " to ",
     last(error.covered), " and was asked about ", error.year,
+    ". Exchange holidays are published yearly and this package ships only what it has ",
+    "checked against two independent sources. Supply ", error.year,
+    " with load_calendar(path; covered = ", error.year, ":", error.year,
+    ", sources = [...]) once the exchange has published it.",
 )
 
 """
@@ -80,10 +84,12 @@ struct TradingCalendar
     holidays::Set{Date}
     special_sessions::Set{Date}
     covered::UnitRange{Int}
+    sources::Vector{String}
 
     function TradingCalendar(
             holidays, special_sessions = Date[];
             covered::Union{UnitRange{Int}, Nothing} = nothing,
+            sources::AbstractVector{<:AbstractString} = String[],
         )
         closed = Set{Date}(holidays)
         special = Set{Date}(special_sessions)
@@ -105,14 +111,25 @@ struct TradingCalendar
                 ),
             )
         end
-        return new(closed, special, years)
+        # Where the dates came from, carried with them. A holiday list is exchange data and
+        # its only claim to being right is who published it; a calendar that cannot say that
+        # is a list of dates somebody typed. Two independent sources is the standard the
+        # shipped years were held to, and it is stated rather than remembered.
+        provenance = String[String(source) for source in sources]
+        isempty(provenance) && throw(
+            ArgumentError(
+                "a calendar must say where its dates came from; pass sources = [...]",
+            ),
+        )
+        return new(closed, special, years, provenance)
     end
 end
 
 Base.show(io::IO, calendar::TradingCalendar) = print(
     io, "TradingCalendar(", length(calendar.holidays), " holidays, ",
     length(calendar.special_sessions), " special sessions, ",
-    first(calendar.covered), "-", last(calendar.covered), ")",
+    first(calendar.covered), "-", last(calendar.covered), ", ",
+    length(calendar.sources), " sources)",
 )
 
 """
@@ -214,21 +231,37 @@ The NSE equity calendar for the years this package has verified.
 Two years, which is a statement about what was checked rather than about what exists. Extend it
 with [`load_calendar`](@ref) rather than by guessing at a third.
 """
+const NSE_SOURCES = String[
+    "zerodha.com/marketintel/holiday-calendar",
+    "cleartax.in/s/nse-holidays-2026",
+    "groww.in/p/nse-holidays",
+    "indiabonds.com market holidays 2025",
+    "calendarlabs.com/nse-market-holidays-2025",
+]
+
 nse_calendar() = TradingCalendar(
-    vcat(NSE_HOLIDAYS_2025, NSE_HOLIDAYS_2026), NSE_MUHURAT; covered = 2025:2026,
+    vcat(NSE_HOLIDAYS_2025, NSE_HOLIDAYS_2026), NSE_MUHURAT;
+    covered = 2025:2026, sources = NSE_SOURCES,
 )
 
 """
-    load_calendar(path; covered, special_sessions)
+    load_calendar(path; covered, sources, special_sessions)
 
 Read a calendar from a file: one ISO date per line, `#` starts a comment.
 
 Exchange holidays are published yearly and this package cannot ship a list it has not checked,
 so the way to cover another year is to supply it. `covered` must be stated, because a file
-listing nothing for a year is not evidence that the year had no holidays.
+listing nothing for a year is not evidence that the year had no holidays, and `sources` must be
+stated for the same reason a shipped year carries them: a list of dates with no provenance is a
+list somebody typed.
+
+At the time of writing the NSE had published 2025 and 2026 and not 2027, which is why the shipped
+calendar stops there. Projections of 2027 circulate and none of them is the exchange, so none of
+them is in here.
 """
 function load_calendar(
         path::AbstractString; covered::UnitRange{Int},
+        sources::AbstractVector{<:AbstractString},
         special_sessions::AbstractVector{Date} = Date[],
     )
     isfile(path) || throw(ArgumentError("no calendar file at $path"))
@@ -242,7 +275,9 @@ function load_calendar(
         )
         push!(dates, parsed)
     end
-    return TradingCalendar(dates, special_sessions; covered = covered)
+    return TradingCalendar(
+        dates, special_sessions; covered = covered, sources = sources,
+    )
 end
 
 """
