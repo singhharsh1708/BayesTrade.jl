@@ -84,19 +84,53 @@ function read_journal(path::AbstractString)
 end
 
 """
-    resume!(session, path)
+    resume!(session, path; install_positions)
 
-Point a fresh session at the journal of a previous one.
+Point a fresh session at the journal of a previous one, and rebuild what it held.
 
-This does **not** rebuild the position book. It sets the watermark, so the session refuses to
-act on any bar the previous process already acted on, and reports what it found. Rebuilding
-positions from a journal is a different and harder problem, and claiming to have done it here
-would be worse than saying plainly that it is not done.
+Three things happen, in this order, and the order matters.
+
+The account is **reconstructed** from the journal by replaying every fill, and the
+reconstruction is **checked** before it is believed: an opening balance must be present, and the
+equity implied by the replay must agree with the equity the journal last recorded. Only then are
+the positions **installed** on the broker.
+
+Where the reconstruction cannot be trusted the positions are not installed, the watermark is
+still set so no bar is traded twice, and the session refuses to trade. A confident wrong book is
+worse than an empty one: an empty book trades nothing until somebody looks, and a wrong one sizes
+every decision against a position that is not there.
+
+`install_positions = false` restores the previous behaviour of setting only the watermark, for
+callers that reconcile against a venue instead and want the venue to be the authority.
 """
-function resume!(session::PaperTradingSession, path::AbstractString)
+function resume!(
+        session::PaperTradingSession, path::AbstractString;
+        install_positions::Bool = true,
+    )
     state = read_journal(path)
     session.journal = String(path)
     session.watermark = state.last_as_of
+
+    account = rebuild_account(path)
+    session.rebuild = account
+    installed = false
+    if install_positions && account.consistent
+        empty!(session.broker.positions)
+        for (symbol, position) in account.positions
+            session.broker.positions[symbol] = position
+        end
+        session.broker.cash = account.cash
+        # Peak equity has to come back too, or the drawdown limit rearms from the restart and
+        # a session that is already deep in a hole believes it is at its high.
+        rebuilt = account.rebuilt_equity
+        if rebuilt !== nothing && isfinite(rebuilt)
+            session.starting_equity = something(account.starting_cash, rebuilt)
+            session.peak_equity = max(rebuilt, something(account.journalled_equity, rebuilt))
+            session.day_start_equity = rebuilt
+        end
+        installed = true
+    end
+
     record!(
         session,
         Dict{String, Any}(
@@ -106,6 +140,12 @@ function resume!(session::PaperTradingSession, path::AbstractString)
             "resumed_after" => state.last_as_of === nothing ? nothing :
                 string(state.last_as_of),
             "prior_fills" => state.fills,
+            "rebuilt_positions" => length(account.positions),
+            "rebuilt_cash" => isfinite(account.cash) ? account.cash : nothing,
+            "rebuilt_equity" => account.rebuilt_equity,
+            "rebuild_consistent" => account.consistent,
+            "positions_installed" => installed,
+            "problems" => account.problems,
         ),
     )
     return state

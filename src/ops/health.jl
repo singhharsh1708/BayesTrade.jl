@@ -59,6 +59,24 @@ function check_health(session::PaperTradingSession, now::DateTime)
     # with, so never having reconciled is not a failure. A comparison that ran and did not
     # agree is, and so is one that could not read the account at all: both mean the position
     # book may be describing an account that does not exist.
+    # What a restart reconstructed. A session that could not rebuild its book confidently
+    # must not trade on the empty one it started with.
+    rebuilt = session.rebuild
+    if rebuilt !== nothing
+        push!(
+            checks,
+            rebuilt.consistent ?
+                ok(
+                    :state_rebuild,
+                    string(
+                        "rebuilt ", length(rebuilt.positions), " positions from ",
+                        rebuilt.n_fills, " fills",
+                    ),
+                ) :
+                bad(:state_rebuild, join(rebuilt.problems, "; ")),
+        )
+    end
+
     result = session.reconciliation
     if result !== nothing
         push!(

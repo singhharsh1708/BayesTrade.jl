@@ -139,12 +139,89 @@ const CATALOGUE = Mutation[
         "test_risk_torture.jl", "the reported drawdown becomes the final bar's again",
     ),
     Mutation(
+        "resume-no-install", "src/ops/recovery.jl",
+        "    if install_positions && account.consistent",
+        "    if false",
+        "test_rebuild.jl", "a restart silently starts with an empty book again",
+    ),
+    Mutation(
+        "resume-install-anyway", "src/ops/recovery.jl",
+        "    if install_positions && account.consistent",
+        "    if install_positions",
+        "test_rebuild.jl", "an inconsistent reconstruction is installed regardless",
+    ),
+    Mutation(
+        "rebuild-cross-zero", "src/ops/rebuild.jl",
+        "        if iszero(held) || sign(held) != sign(updated) && !iszero(updated)",
+        "        if iszero(held)",
+        "test_rebuild.jl", "a long is averaged into a short",
+    ),
+    Mutation(
+        "reconcile-fail-open", "src/ops/reconciliation.jl",
+        "may_open_new_positions(result::Reconciliation) = reconciled(result)",
+        "may_open_new_positions(result::Reconciliation) = result.status !== RECONCILE_MISMATCHED",
+        "test_reconciliation.jl", "an unreadable venue stops failing closed",
+    ),
+    Mutation(
+        "reconcile-stale", "src/ops/reconciliation.jl",
+        "    if age > tolerances.max_staleness || age < Millisecond(0)",
+        "    if false",
+        "test_reconciliation.jl", "an old snapshot counts as evidence about now",
+    ),
+    Mutation(
         "bar-finite", "src/domain/market.jl",
         "        all(isfinite, (open, high, low, close)) ||\n            throw(ArgumentError(\"\$symbol: every price must be finite\"))",
         "        # mutated",
         "test_provenance_stability.jl", "an infinite price enters through the store",
     ),
 ]
+
+"""
+    MARKER
+
+Where an in-progress mutation records which file it broke.
+
+`finally` restores the source on an exception and does nothing at all when the process is
+killed, which is what a timeout does. A run that ends that way leaves a deliberate defect sitting
+in the working tree looking exactly like code, and it has already been committed once.
+
+The marker survives the kill. The next run reads it, restores the file from git, and says so.
+"""
+const MARKER = joinpath(@__DIR__, ".mutation-in-progress")
+
+"""
+    recover_interrupted!()
+
+Undo a mutation left behind by a run that was killed.
+"""
+function recover_interrupted!()
+    isfile(MARKER) || return nothing
+    stranded = strip(read(MARKER, String))
+    rm(MARKER; force = true)
+    isempty(stranded) && return nothing
+    println("A previous run was interrupted while ", stranded, " was mutated.")
+    println("Restoring it from git.")
+    run(`git -C $ROOT checkout -- $stranded`)
+    return nothing
+end
+
+"""
+    require_clean_tree()
+
+Refuse to start with uncommitted changes under `src/`.
+
+Not fussiness. This script edits source files and puts them back, and it cannot tell a change it
+made from one somebody else was working on. Starting anyway risks reverting real work, which has
+also already happened once.
+"""
+function require_clean_tree()
+    clean = success(`git -C $ROOT diff --quiet -- src`)
+    clean && return true
+    println("src/ has uncommitted changes.")
+    println("This script mutates source files and restores them from a saved copy, and it")
+    println("cannot tell your edits from its own. Commit or stash first.")
+    return false
+end
 
 run_suite(suite) = success(
     pipeline(
@@ -160,18 +237,27 @@ function apply!(mutation::Mutation)
     path = joinpath(ROOT, mutation.file)
     original = read(path, String)
     count(mutation.from, original) == 1 || return nothing
+    write(MARKER, mutation.file)
     write(path, replace(original, mutation.from => mutation.to))
     return original
 end
 
+function restore!(mutation::Mutation, original::AbstractString)
+    write(joinpath(ROOT, mutation.file), original)
+    rm(MARKER; force = true)
+    return nothing
+end
+
 function main()
+    recover_interrupted!()
+    require_clean_tree() || return 2
     pattern = isempty(ARGS) ? "" : ARGS[1]
     selected = isempty(pattern) ? CATALOGUE :
         Mutation[m for m in CATALOGUE if occursin(pattern, m.id)]
 
-    println("=" ^ 78)
+    println("="^78)
     println("MUTATION CATALOGUE: ", length(selected), " deliberate defects")
-    println("=" ^ 78)
+    println("="^78)
     @printf("%-26s %-30s %s\n", "mutation", "suite", "result")
 
     survivors = String[]
@@ -186,7 +272,7 @@ function main()
         caught = try
             !run_suite(mutation.suite)
         finally
-            write(joinpath(ROOT, mutation.file), original)
+            restore!(mutation, original)
         end
         caught || push!(survivors, mutation.id)
         @printf(
@@ -195,12 +281,20 @@ function main()
         )
     end
 
-    println("=" ^ 78)
+    println("="^78)
     @printf(
         "%d caught, %d survived, %d anchors missing\n",
         length(selected) - length(survivors) - length(unanchored),
         length(survivors), length(unanchored),
     )
+    # Whatever happened above, the tree has to be as it was found. Checked rather than
+    # assumed, because the one time it was not, a deliberate defect reached a commit.
+    if !success(`git -C $ROOT diff --quiet -- src`)
+        println()
+        println("src/ is not as it was found. A mutation may still be applied.")
+        println("Run: git -C ", ROOT, " diff -- src")
+        return 3
+    end
     isempty(survivors) || println("survivors: ", join(survivors, ", "))
     isempty(unanchored) ||
         println("anchors missing (the source moved): ", join(unanchored, ", "))

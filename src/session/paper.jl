@@ -82,6 +82,9 @@ mutable struct PaperTradingSession{F <: Tuple}
     # has no external account to disagree with, so absence is not a failure here; a mismatch
     # or an unreadable venue is, and health refuses on both.
     reconciliation::Union{Reconciliation, Nothing}
+    # What a restart reconstructed, or nothing when this session was not resumed. An
+    # inconsistent reconstruction is a refusal to trade, not a warning.
+    rebuild::Union{RebuiltAccount, Nothing}
 
     function PaperTradingSession(
             symbol::AbstractString, factories::F, features::FeatureSet;
@@ -105,7 +108,7 @@ mutable struct PaperTradingSession{F <: Tuple}
         models = ProbabilisticModel[factory() for factory in factories]
         names = ModelName[model_name(model) for model in models]
         broker = PaperBroker(starting_cash = starting_cash)
-        return new{F}(
+        session = new{F}(
             String(symbol), Int(horizon_bars), factories, models,
             ModelReliability(names), broker,
             FeatureEngine(InMemoryBarStore(), features),
@@ -118,7 +121,24 @@ mutable struct PaperTradingSession{F <: Tuple}
             Float64(starting_cash), nothing,
             Tuple{Int, DateTime, Any}[], SessionCounters(),
             journal === nothing ? nothing : String(journal), false, nothing, nothing,
+            nothing,
         )
+        # The journal has to say what the account started with, or a later process can add up
+        # every fill in it and still not know the cash balance. Written at construction rather
+        # than at the first bar, so a session that crashes before its first bar still leaves a
+        # journal that can be read.
+        record!(
+            session,
+            Dict{String, Any}(
+                "event" => "session_started",
+                "schema" => SESSION_SCHEMA_VERSION,
+                "symbol" => String(symbol),
+                "starting_cash" => Float64(starting_cash),
+                "horizon_bars" => Int(horizon_bars),
+                "warmup" => Int(warmup),
+            ),
+        )
+        return session
     end
 end
 
