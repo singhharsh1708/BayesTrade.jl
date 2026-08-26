@@ -90,19 +90,29 @@ Ranked by what has to be true before real money is plausible, not by effort.
 order is not gated behind a flag; the code path is absent. Building it is a Phase 15 decision,
 and building it removes this gate, so it should be the last thing done and not the first.
 
-**2. Position state is not reconciled against the broker.** The session believes its own book. A
-live venue is the authority on what is actually held, and the two can disagree after a partial
-fill, a rejection or a restart. Nothing trades until they agree, and that reconciliation does not
-exist.
+**2. Position state is not reconciled against the broker.** ~~The session believes its own book.~~
+**Closed.** `reconcile` compares the local book against a venue snapshot and reports matched,
+mismatched or unavailable; a mismatch or an unreadable venue stops new trading through
+`check_health`, and nothing resolves automatically. `AccountSource` is a read-only interface, not
+a broker, so this was built and tested with no live order path in existence.
 
-**3. `resume!` does not rebuild the position book.** It sets a watermark, so no bar is traded
-twice, which is enough for paper mode where the positions are notional. It is not enough for a
-live one, and the docstring says so rather than implying otherwise.
+What remains is the venue implementation itself, which arrives with the broker and not before.
+
+**3. `resume!` does not rebuild the position book.** ~~It sets a watermark.~~ **Closed.** It now
+replays every fill in the journal into positions and cash, checks the reconstruction against the
+equity the journal last recorded, and installs it only if that holds. Where it does not, nothing
+is installed, the watermark is still set, and `check_health` fails on `:state_rebuild`. Peak
+equity is restored too, so the drawdown limit does not rearm at the restart.
 
 **4. The calendar covers two years.** 2025 and 2026, each taken from independent published
-sources that agreed on every date. Exchange holidays are published yearly, and a third year has
-to be supplied through `load_calendar` rather than guessed at. A run that crosses into an
-uncovered year raises rather than treating the holidays as ordinary Tuesdays.
+sources that agreed on every date. **Still open, and deliberately.** At the time of writing the
+NSE had not published 2027; projections of it circulate and none of them is the exchange. Adding
+one would be exactly the unverified dataset this project has refused elsewhere.
+
+What changed is that the refusal is now actionable: `CalendarCoverageError` names the year, the
+standard the shipped years were held to, and the `load_calendar` call that closes it. Every
+calendar must also carry its `sources`, shipped or supplied, because a list of dates with no
+provenance is a list somebody typed.
 
 ## What could not be done
 
