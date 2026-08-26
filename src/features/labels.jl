@@ -93,13 +93,12 @@ function forward_label(
     entry = latest(store, symbol; as_of = as_of)
     entry === nothing && return nothing
 
-    ahead = Bar[
-        bar for bar in load_range(store, symbol, entry.timestamp)
-            if bar.timestamp > entry.timestamp
-    ]
-    length(ahead) < horizon_bars && return nothing
+    # Exactly the bars the horizon needs. The previous read pulled every bar from here to the
+    # end of history and kept the first few, which is linear work per row and quadratic over a
+    # dataset: building labels for ten thousand bars allocated eleven gigabytes.
+    holding = upcoming(store, symbol; after = entry.timestamp, count = horizon_bars)
+    length(holding) < horizon_bars && return nothing
 
-    holding = view(ahead, 1:horizon_bars)
     exit_bar = holding[end]
     entry_price = entry.close
 

@@ -172,6 +172,37 @@ function history(
 end
 
 """
+    upcoming(store, symbol; after, count)
+
+The first `count` bars strictly after `after`, oldest first.
+
+The mirror of [`history`](@ref), which takes the last `count` at or before a moment. It exists
+because a label needs a bounded look forward and had no way to ask for one: the only forward
+read was [`load_range`](@ref), which returns everything from a moment to the end of history, and
+a caller wanting three bars got all of them.
+
+Not safe inside a feature, and safe inside a label. That is the whole distinction: a feature at
+time t may not see past t, and a label at time t is *defined* by what happened after it.
+"""
+function upcoming(
+        store::InMemoryBarStore, symbol::AbstractString;
+        after::DateTime, count::Integer,
+    )
+    count >= 0 || throw(ArgumentError("count must be non-negative, got $count"))
+    count == 0 && return Bar[]
+    bars = get(store.bars, symbol, nothing)
+    (bars === nothing || isempty(bars)) && return Bar[]
+
+    stamps = store.stamps[symbol]
+    start = searchsortedfirst(stamps, after)
+    # Strictly after, so a bar landing exactly on the bound is the one being labelled rather
+    # than part of what happens next.
+    start <= length(stamps) && stamps[start] == after && (start += 1)
+    start > length(bars) && return Bar[]
+    return collect(view(bars, start:min(length(bars), start + count - 1)))
+end
+
+"""
     load_range(store, symbol, start = nothing, stop = nothing)
 
 An arbitrary window, inclusive at both ends. Not safe inside a feature; see the module
